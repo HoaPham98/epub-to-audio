@@ -54,7 +54,7 @@ export function useMediaSession({
     };
   });
 
-  // 1. Sync MediaMetadata and Action Handlers
+  // 1. Sync MediaMetadata when book, chapter, or chunk changes
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
       return;
@@ -112,6 +112,13 @@ export function useMediaSession({
     } catch (e) {
       console.warn('Failed to set MediaMetadata', e);
     }
+  }, [book, currentChapterIndex, currentChunkIndex]);
+
+  // 2. Register persistent MediaSession Action Handlers once on mount
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
+      return;
+    }
 
     const actionHandlers: [MediaSessionAction, MediaSessionActionHandler | null][] = [
       [
@@ -132,8 +139,6 @@ export function useMediaSession({
           callbacksRef.current.onPause();
         },
       ],
-      ['previoustrack', () => callbacksRef.current.onPrevChunk()],
-      ['nexttrack', () => callbacksRef.current.onNextChunk()],
       [
         'seekbackward',
         details => callbacksRef.current.onSkipRelative(-(details.seekOffset || 10)),
@@ -150,15 +155,6 @@ export function useMediaSession({
           }
         },
       ],
-      [
-        'stop',
-        () => {
-          try {
-            navigator.mediaSession.playbackState = 'paused';
-          } catch {}
-          callbacksRef.current.onPause();
-        },
-      ],
     ];
 
     for (const [action, handler] of actionHandlers) {
@@ -169,6 +165,7 @@ export function useMediaSession({
       }
     }
 
+    // Clean up only when the component unmounts
     return () => {
       for (const [action] of actionHandlers) {
         try {
@@ -178,9 +175,9 @@ export function useMediaSession({
         }
       }
     };
-  }, [book, currentChapterIndex, currentChunkIndex]);
+  }, []);
 
-  // 2. Sync Playback State
+  // 3. Sync Playback State
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
       return;
@@ -192,7 +189,7 @@ export function useMediaSession({
     }
   }, [isPlaying]);
 
-  // 3. Sync Position State for Lock Screen Timeline
+  // 4. Sync Position State for Lock Screen Timeline
   useEffect(() => {
     if (
       typeof window === 'undefined' ||
