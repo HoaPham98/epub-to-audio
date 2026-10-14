@@ -29,7 +29,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="h-full overflow-hidden flex flex-col">{children}</body>
-      <Agentation endpoint="http://localhost:4747" />
+      {process.env.NODE_ENV === 'development' && (
+        <Agentation endpoint="http://localhost:4747" />
+      )}
     </html>
   );
 }
