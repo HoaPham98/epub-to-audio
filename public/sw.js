@@ -1,10 +1,11 @@
 // Service Worker for EPUB to Audio Reader PWA
-const CACHE_NAME = 'epub-audio-pwa-v1';
+const CACHE_NAME = 'epub-audio-pwa-v2';
 
 const STATIC_PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',
   '/favicon.ico',
+  '/silence-10s.wav',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
   '/icons/maskable-icon-512x512.png',

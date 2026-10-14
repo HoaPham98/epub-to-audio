@@ -73,14 +73,30 @@ export function useMediaSession({
     const artist = book.author || 'Tác giả không xác định';
     const album = book.title;
 
+    const origin = window.location.origin;
+    const toAbsoluteUrl = (url: string) => {
+      if (
+        url.startsWith('http://') ||
+        url.startsWith('https://') ||
+        url.startsWith('data:') ||
+        url.startsWith('blob:')
+      ) {
+        return url;
+      }
+      return new URL(url, origin).href;
+    };
+
+    const raw192 = book.coverUrl || '/icons/icon-192x192.png';
+    const raw512 = book.coverUrl || '/icons/icon-512x512.png';
+
     const artwork: MediaImage[] = [
       {
-        src: book.coverUrl || '/icons/icon-192x192.png',
+        src: toAbsoluteUrl(raw192),
         sizes: '192x192',
         type: 'image/png',
       },
       {
-        src: book.coverUrl || '/icons/icon-512x512.png',
+        src: toAbsoluteUrl(raw512),
         sizes: '512x512',
         type: 'image/png',
       },

@@ -21,6 +21,7 @@ export interface IAudioStreamPlayer {
   playCachedBlob(blob: Blob, speed?: number, append?: boolean, meta?: ChunkMeta): Promise<void>;
   setVolume?(volume: number): void;
   getAudioElement?(): HTMLAudioElement | null;
+  ensureAudioElementPlaying?(): Promise<void>;
   onTimeUpdate(callback: (currentTime: number) => void): () => void;
   onChunkChange(callback: (chapterIndex: number, chunkIndex: number) => void): () => void;
   onEnded(callback: () => void): () => void;

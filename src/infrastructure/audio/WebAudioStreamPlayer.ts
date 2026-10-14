@@ -39,7 +39,6 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private errorCallbacks: Set<(e: Error) => void> = new Set();
   private tickerInterval: number | null = null;
   private gainNode: GainNode | null = null;
-  private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
   private audioElement: HTMLAudioElement | null = null;
   private isInternalPauseAction = false;
   private volume = 1.0;
@@ -57,17 +56,6 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     if (!this.gainNode) {
       this.gainNode = this.audioContext.createGain();
       this.gainNode.gain.value = this.volume;
-    }
-
-    if (!this.mediaStreamDestination && typeof this.audioContext.createMediaStreamDestination === 'function') {
-      try {
-        this.mediaStreamDestination = this.audioContext.createMediaStreamDestination();
-        this.gainNode.connect(this.mediaStreamDestination);
-      } catch (e) {
-        console.warn('MediaStreamDestination not supported, falling back to direct destination', e);
-        this.gainNode.connect(this.audioContext.destination);
-      }
-    } else if (!this.mediaStreamDestination) {
       this.gainNode.connect(this.audioContext.destination);
     }
 
@@ -84,13 +72,13 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         el.setAttribute('playsinline', 'true');
         el.setAttribute('webkit-playsinline', 'true');
         el.setAttribute('x-webkit-airplay', 'allow');
+        el.loop = true;
+        el.preload = 'auto';
+        el.crossOrigin = 'anonymous';
+        el.src = '/silence-10s.wav';
         document.body.appendChild(el);
       }
       this.audioElement = el;
-
-      if (this.mediaStreamDestination && this.audioElement.srcObject !== this.mediaStreamDestination.stream) {
-        this.audioElement.srcObject = this.mediaStreamDestination.stream;
-      }
 
       // External pause listener (e.g. bluetooth disconnect, headphone unplugged, audio focus loss)
       this.audioElement.addEventListener('pause', () => {
@@ -103,6 +91,18 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     // Strict suspension lock: if player is paused, do NOT resume audioContext
     if (this.playerState !== 'paused' && this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
+    }
+  }
+
+  async ensureAudioElementPlaying(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    await this.init();
+    if (this.audioElement && this.audioElement.paused && this.playerState !== 'paused') {
+      try {
+        await this.audioElement.play();
+      } catch (err) {
+        console.warn('AudioElement play deferred or blocked:', err);
+      }
     }
   }
 
@@ -203,6 +203,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     ) {
       this.playerState = 'playing';
       this.isCurrentlyPlaying = true;
+      this.ensureAudioElementPlaying().catch(() => {});
       this.startTicker();
     }
   }
@@ -217,13 +218,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         console.warn('Failed to resume AudioContext', err);
       }
     }
-    if (this.audioElement && this.audioElement.paused) {
-      try {
-        await this.audioElement.play();
-      } catch (err) {
-        console.warn('AudioElement play deferred:', err);
-      }
-    }
+    await this.ensureAudioElementPlaying();
     if (this.queuedItems.length > 0 && !this.isLeadInBuffered) {
       this.isLeadInBuffered = true;
       this.flushQueuedBuffers();
@@ -287,10 +282,9 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     if (this.gainNode) {
       this.gainNode.gain.value = this.volume;
     }
-    if (this.audioElement) {
-      this.audioElement.volume = this.volume;
-      this.audioElement.muted = this.volume === 0;
-    }
+    // Do not set audioElement.muted or audioElement.volume = 0
+    // Chrome Android hides the media notification shade if the media element is muted.
+    // The background audio bridge plays pure digital silence so it never produces audible sound.
   }
 
   getAudioElement(): HTMLAudioElement | null {
@@ -375,13 +369,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.totalQueuedDuration += audioBuffer.duration;
       this.isLeadInBuffered = true;
       this.scheduleBuffer(audioBuffer, meta);
-      if (this.audioElement && this.audioElement.paused) {
-        try {
-          await this.audioElement.play();
-        } catch {
-          // ignore
-        }
-      }
+      await this.ensureAudioElementPlaying();
     } catch (err: unknown) {
       const error =
         err instanceof Error ? err : new Error('Không thể giải mã file âm thanh từ cache');

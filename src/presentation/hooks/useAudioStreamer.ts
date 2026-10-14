@@ -195,6 +195,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
             if (controller.signal.aborted) return;
             // First audio packet arrived (~300ms lead-in): audio output starts immediately!
             if (!isPausedByUserRef.current) {
+              audioPlayer.ensureAudioElementPlaying?.();
               setIsPlaying(true);
               setChunkStatuses(prev => ({
                 ...prev,
@@ -294,11 +295,15 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   // Play a specific chunk from the beginning (manual user interaction)
   const playChunk = useCallback(
     (chapIdx: number, chunkIdx: number) => {
+      // Synchronous user-gesture unlock for Chrome Android audio focus & notification
+      audioPlayer.init();
+      audioPlayer.ensureAudioElementPlaying?.();
+
       isPausedByUserRef.current = false;
       pausedTargetChunkRef.current = null;
       streamChunkInternal(chapIdx, chunkIdx, false);
     },
-    [streamChunkInternal]
+    [audioPlayer, streamChunkInternal]
   );
 
   // Retry action for recoverable errors
@@ -375,6 +380,10 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       audioPlayer.pause();
       setIsPlaying(false);
     } else {
+      // Synchronous user-gesture unlock for Chrome Android audio focus & notification
+      audioPlayer.init();
+      audioPlayer.ensureAudioElementPlaying?.();
+
       isPausedByUserRef.current = false;
       pausedTargetChunkRef.current = null;
       setErrorMessage(null);
