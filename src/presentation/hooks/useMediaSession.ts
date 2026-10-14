@@ -114,8 +114,24 @@ export function useMediaSession({
     }
 
     const actionHandlers: [MediaSessionAction, MediaSessionActionHandler | null][] = [
-      ['play', () => callbacksRef.current.onPlay()],
-      ['pause', () => callbacksRef.current.onPause()],
+      [
+        'play',
+        () => {
+          try {
+            navigator.mediaSession.playbackState = 'playing';
+          } catch {}
+          callbacksRef.current.onPlay();
+        },
+      ],
+      [
+        'pause',
+        () => {
+          try {
+            navigator.mediaSession.playbackState = 'paused';
+          } catch {}
+          callbacksRef.current.onPause();
+        },
+      ],
       ['previoustrack', () => callbacksRef.current.onPrevChunk()],
       ['nexttrack', () => callbacksRef.current.onNextChunk()],
       [
@@ -134,7 +150,15 @@ export function useMediaSession({
           }
         },
       ],
-      ['stop', () => callbacksRef.current.onPause()],
+      [
+        'stop',
+        () => {
+          try {
+            navigator.mediaSession.playbackState = 'paused';
+          } catch {}
+          callbacksRef.current.onPause();
+        },
+      ],
     ];
 
     for (const [action, handler] of actionHandlers) {

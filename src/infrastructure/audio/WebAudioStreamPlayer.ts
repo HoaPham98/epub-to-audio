@@ -35,6 +35,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
 
   private timeUpdateCallbacks: Set<(t: number) => void> = new Set();
   private chunkChangeCallbacks: Set<(chapterIndex: number, chunkIndex: number) => void> = new Set();
+  private playbackStateCallbacks: Set<(state: 'idle' | 'playing' | 'paused') => void> = new Set();
   private endedCallbacks: Set<() => void> = new Set();
   private errorCallbacks: Set<(e: Error) => void> = new Set();
   private tickerInterval: number | null = null;
@@ -42,6 +43,16 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private audioElement: HTMLAudioElement | null = null;
   private isInternalPauseAction = false;
   private volume = 1.0;
+
+  private notifyPlaybackState(state: 'idle' | 'playing' | 'paused'): void {
+    this.playbackStateCallbacks.forEach(cb => {
+      try {
+        cb(state);
+      } catch (e) {
+        console.warn('Error in playbackState callback', e);
+      }
+    });
+  }
 
   async init(): Promise<void> {
     if (typeof window === 'undefined') return;
@@ -84,6 +95,13 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.audioElement.addEventListener('pause', () => {
         if (this.isCurrentlyPlaying && !this.isInternalPauseAction) {
           this.pause();
+        }
+      });
+
+      // External play listener (e.g. bluetooth media button, headset resume)
+      this.audioElement.addEventListener('play', () => {
+        if (this.playerState === 'paused' && !this.isInternalPauseAction) {
+          this.play();
         }
       });
     }
@@ -210,6 +228,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
 
   async play(): Promise<void> {
     this.playerState = 'playing';
+    this.notifyPlaybackState('playing');
     await this.init();
     if (this.audioContext && this.audioContext.state === 'suspended') {
       try {
@@ -230,6 +249,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   async pause(): Promise<void> {
     this.isInternalPauseAction = true;
     this.playerState = 'paused';
+    this.notifyPlaybackState('paused');
     this.isCurrentlyPlaying = false;
     this.stopTicker();
     if (this.audioElement && !this.audioElement.paused) {
@@ -252,6 +272,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   stop(): void {
     this.isInternalPauseAction = true;
     this.playerState = 'idle';
+    this.notifyPlaybackState('idle');
     this.isCurrentlyPlaying = false;
     this.stopTicker();
     if (this.audioElement && !this.audioElement.paused) {
@@ -396,6 +417,35 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   onError(callback: (err: Error) => void): () => void {
     this.errorCallbacks.add(callback);
     return () => this.errorCallbacks.delete(callback);
+  }
+
+  onPlaybackStateChange(callback: (state: 'idle' | 'playing' | 'paused') => void): () => void {
+    this.playbackStateCallbacks.add(callback);
+    return () => this.playbackStateCallbacks.delete(callback);
+  }
+
+  getActiveChunkTime(): number {
+    if (!this.audioContext || this.playbackStartTime === 0) {
+      return 0;
+    }
+    const now = this.audioContext.currentTime;
+    const activeBoundary = this.chunkBoundaries.find(
+      b => now >= b.startTime && now < b.endTime
+    );
+    if (activeBoundary) {
+      return Math.max(0, (now - activeBoundary.startTime) * this.playbackSpeed);
+    }
+    return 0;
+  }
+
+  getChunkDuration(chapterIndex: number, chunkIndex: number): number | undefined {
+    const boundary = this.chunkBoundaries.find(
+      b => b.chapterIndex === chapterIndex && b.chunkIndex === chunkIndex
+    );
+    if (boundary) {
+      return (boundary.endTime - boundary.startTime) * this.playbackSpeed;
+    }
+    return undefined;
   }
 
   private stopAllNodes(): void {

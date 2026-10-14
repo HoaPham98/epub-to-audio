@@ -28,6 +28,8 @@ interface AudioPlayerBarProps {
   duration: number;
   estimatedDuration?: number;
   bufferedTime?: number;
+  forwardBufferSeconds?: number;
+  isChapterFullyBuffered?: boolean;
   autoNext: boolean;
   onTogglePlayPause: () => void;
   onPrevChapter: () => void;
@@ -57,6 +59,8 @@ export function AudioPlayerBar({
   duration,
   estimatedDuration = 0,
   bufferedTime = 0,
+  forwardBufferSeconds,
+  isChapterFullyBuffered = false,
   autoNext,
   onTogglePlayPause,
   onPrevChapter,
@@ -123,14 +127,22 @@ export function AudioPlayerBar({
               <span className="text-[11px] text-zinc-500">
                 Chương {currentChapterIndex + 1}/{book.chapters.length}
               </span>
-              {bufferedTime > 0 && effectiveDuration > 0 && (
+              {isChapterFullyBuffered ? (
+                <span className="text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                  Đã nạp hết chương
+                </span>
+              ) : forwardBufferSeconds !== undefined && forwardBufferSeconds > 0 ? (
+                <span className="text-[10px] font-mono font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                  Đệm trước: +{forwardBufferSeconds.toFixed(0)}s
+                </span>
+              ) : bufferedTime > 0 && effectiveDuration > 0 ? (
                 <span className="text-[10px] font-mono font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
                   Đã đệm {bufferedTime.toFixed(1)}s{effectiveDuration > bufferedTime ? ` / ~${effectiveDuration.toFixed(1)}s` : ''}
                 </span>
-              )}
+              ) : null}
               {isBuffering && (
                 <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800 animate-pulse">
-                  {bufferedTime >= effectiveDuration ? 'Đang nạp sẵn đoạn kế...' : 'Đang nạp dữ liệu...'}
+                  {isChapterFullyBuffered ? 'Đang nạp sẵn chương kế...' : 'Đang nạp dữ liệu...'}
                 </span>
               )}
             </div>

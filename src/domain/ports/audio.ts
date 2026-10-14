@@ -22,6 +22,9 @@ export interface IAudioStreamPlayer {
   setVolume?(volume: number): void;
   getAudioElement?(): HTMLAudioElement | null;
   ensureAudioElementPlaying?(): Promise<void>;
+  getActiveChunkTime?(): number;
+  getChunkDuration?(chapterIndex: number, chunkIndex: number): number | undefined;
+  onPlaybackStateChange?(callback: (state: 'idle' | 'playing' | 'paused') => void): () => void;
   onTimeUpdate(callback: (currentTime: number) => void): () => void;
   onChunkChange(callback: (chapterIndex: number, chunkIndex: number) => void): () => void;
   onEnded(callback: () => void): () => void;

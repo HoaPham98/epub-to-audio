@@ -208,6 +208,8 @@ export default function Home() {
             duration={audioPlayer.duration}
             estimatedDuration={audioPlayer.estimatedDuration}
             bufferedTime={audioPlayer.bufferedTime}
+            forwardBufferSeconds={audioPlayer.forwardBufferSeconds}
+            isChapterFullyBuffered={audioPlayer.isChapterFullyBuffered}
             autoNext={audioPlayer.autoNext}
             onTogglePlayPause={audioPlayer.togglePlayPause}
             onPrevChapter={audioPlayer.prevChapter}
