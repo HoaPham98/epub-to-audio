@@ -34,6 +34,9 @@ class SequentialRequestQueue {
 
 const globalTTSQueue = new SequentialRequestQueue();
 
+// In-flight request deduplication map
+const inFlightRequests = new Map<string, Promise<Blob>>();
+
 /**
  * Executes a fetch function with automatic retries on 429 Too Many Requests.
  */
@@ -129,6 +132,11 @@ export async function fetchTTSAudio(
     if (cachedBlob) {
       return cachedBlob;
     }
+
+    // Check if another call (e.g. background prefetch) is already downloading this chunk
+    if (inFlightRequests.has(cacheKey)) {
+      return inFlightRequests.get(cacheKey)!;
+    }
   }
 
   // 2. Prepare payload
@@ -146,7 +154,7 @@ export async function fetchTTSAudio(
   };
 
   // 3. Queue network request to avoid overloading the TTS endpoint
-  return globalTTSQueue.enqueue(() =>
+  const fetchPromise = globalTTSQueue.enqueue(() =>
     executeWithRetry(async () => {
       let audioBlob: Blob | null = null;
 
@@ -236,6 +244,15 @@ export async function fetchTTSAudio(
       return audioBlob;
     })
   );
+
+  if (cacheKey) {
+    inFlightRequests.set(cacheKey, fetchPromise);
+    fetchPromise.finally(() => {
+      inFlightRequests.delete(cacheKey);
+    });
+  }
+
+  return fetchPromise;
 }
 
 /**

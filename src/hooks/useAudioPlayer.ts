@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { EpubBook, TTSSettings, ChunkStatus } from '@/types';
-import { fetchTTSAudio, TTSError } from '@/lib/tts';
+import { fetchTTSAudio } from '@/lib/tts';
 
 interface UseAudioPlayerProps {
   book: EpubBook | null;
@@ -22,9 +22,9 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const currentBlobUrlRef = useRef<string | null>(null);
   const prefetchingChunksRef = useRef<Set<string>>(new Set());
-  const prefetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // In-memory Preloaded Blob URL cache: chunkKey -> ObjectURL (for 0ms instant playback)
+  const preloadedBlobUrlsRef = useRef<Map<string, string>>(new Map());
 
   // Initialize Audio element on mount
   useEffect(() => {
@@ -60,9 +60,9 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('error', onError);
-      if (currentBlobUrlRef.current) {
-        URL.revokeObjectURL(currentBlobUrlRef.current);
-      }
+      // Clean up all preloaded Object URLs
+      preloadedBlobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      preloadedBlobUrlsRef.current.clear();
     };
   }, []);
 
@@ -82,7 +82,16 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
     });
   }, []);
 
-  // Background Prefetching helper
+  // Helper to get consistent chunk key
+  const getChunkKey = useCallback(
+    (chapIdx: number, chunkIdx: number) => {
+      if (!book) return '';
+      return `${book.id}_ch${chapIdx}_ck${chunkIdx}`;
+    },
+    [book]
+  );
+
+  // Background Prefetching: fetches audio blob and keeps ObjectURL in memory
   const prefetchChunk = useCallback(
     async (targetChapterIndex: number, targetChunkIndex: number) => {
       if (!book) return;
@@ -90,11 +99,24 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
       if (!chapter || !chapter.chunks[targetChunkIndex]) return;
 
       const chunkKey = `${book.id}_ch${targetChapterIndex}_ck${targetChunkIndex}`;
-      if (prefetchingChunksRef.current.has(chunkKey)) return;
+
+      // Skip if already in memory or currently fetching
+      if (preloadedBlobUrlsRef.current.has(chunkKey) || prefetchingChunksRef.current.has(chunkKey)) {
+        return;
+      }
 
       prefetchingChunksRef.current.add(chunkKey);
+
+      // Only mark status for current chapter
+      if (targetChapterIndex === currentChapterIndex) {
+        setChunkStatuses(prev => ({
+          ...prev,
+          [targetChunkIndex]: prev[targetChunkIndex] === 'playing' ? 'playing' : 'loading',
+        }));
+      }
+
       try {
-        await fetchTTSAudio(
+        const audioBlob = await fetchTTSAudio(
           chapter.chunks[targetChunkIndex].text,
           settings,
           {
@@ -103,11 +125,35 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
             chunkIndex: targetChunkIndex,
           }
         );
+
+        // Pre-create Object URL and cache in memory for 0ms latency transition
+        if (!preloadedBlobUrlsRef.current.has(chunkKey)) {
+          const blobUrl = URL.createObjectURL(audioBlob);
+          preloadedBlobUrlsRef.current.set(chunkKey, blobUrl);
+        }
+
         if (targetChapterIndex === currentChapterIndex) {
-          setChunkStatuses(prev => ({ ...prev, [targetChunkIndex]: 'ready' }));
+          setChunkStatuses(prev => ({
+            ...prev,
+            [targetChunkIndex]: prev[targetChunkIndex] === 'playing' ? 'playing' : 'ready',
+          }));
+        }
+
+        // Buffer ahead: If current chapter has more chunks, prefetch the next one too!
+        if (targetChunkIndex + 1 < chapter.chunks.length) {
+          const nextKey = `${book.id}_ch${targetChapterIndex}_ck${targetChunkIndex + 1}`;
+          if (!preloadedBlobUrlsRef.current.has(nextKey) && !prefetchingChunksRef.current.has(nextKey)) {
+            prefetchChunk(targetChapterIndex, targetChunkIndex + 1);
+          }
         }
       } catch (err) {
-        console.warn(`Lỗi khi prefetch chunk ${targetChunkIndex}:`, err);
+        console.warn(`[Prefetch] Lỗi khi tải trước chunk ${targetChunkIndex}:`, err);
+        if (targetChapterIndex === currentChapterIndex) {
+          setChunkStatuses(prev => ({
+            ...prev,
+            [targetChunkIndex]: prev[targetChunkIndex] === 'playing' ? 'playing' : 'idle',
+          }));
+        }
       } finally {
         prefetchingChunksRef.current.delete(chunkKey);
       }
@@ -129,10 +175,45 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
       }
 
       setErrorMessage(null);
-      setIsLoading(true);
       setCurrentChapterIndex(chapIdx);
       setCurrentChunkIndex(chunkIdx);
 
+      const chunkKey = `${book.id}_ch${chapIdx}_ck${chunkIdx}`;
+
+      // FAST PATH: Check if already preloaded in memory
+      if (preloadedBlobUrlsRef.current.has(chunkKey)) {
+        const preloadedUrl = preloadedBlobUrlsRef.current.get(chunkKey)!;
+        setIsLoading(false);
+
+        if (audioRef.current) {
+          audioRef.current.src = preloadedUrl;
+          audioRef.current.playbackRate = settings.speed;
+          try {
+            await audioRef.current.play();
+            setIsPlaying(true);
+          } catch (e) {
+            console.error('Audio play failed:', e);
+          }
+        }
+
+        setChunkStatuses(prev => ({
+          ...prev,
+          [chunkIdx]: 'playing',
+        }));
+
+        // Immediately trigger background prefetch for next chunk!
+        if (settings.enablePrefetch !== false) {
+          if (chunkIdx + 1 < chapter.chunks.length) {
+            prefetchChunk(chapIdx, chunkIdx + 1);
+          } else if (autoNext && chapIdx + 1 < book.chapters.length) {
+            prefetchChunk(chapIdx + 1, 0);
+          }
+        }
+        return;
+      }
+
+      // SLOW PATH: First time loading (not yet preloaded)
+      setIsLoading(true);
       setChunkStatuses(prev => ({
         ...prev,
         [chunkIdx]: 'loading',
@@ -146,13 +227,8 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
           chunkIndex: chunkIdx,
         });
 
-        // Clean up previous blob URL
-        if (currentBlobUrlRef.current) {
-          URL.revokeObjectURL(currentBlobUrlRef.current);
-        }
-
         const blobUrl = URL.createObjectURL(audioBlob);
-        currentBlobUrlRef.current = blobUrl;
+        preloadedBlobUrlsRef.current.set(chunkKey, blobUrl);
 
         if (audioRef.current) {
           audioRef.current.src = blobUrl;
@@ -166,21 +242,13 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
           [chunkIdx]: 'playing',
         }));
 
-        // Clear any pending prefetch
-        if (prefetchTimeoutRef.current) {
-          clearTimeout(prefetchTimeoutRef.current);
-          prefetchTimeoutRef.current = null;
-        }
-
-        // Trigger delayed prefetch for next chunk (wait 2500ms so current chunk is well underway)
+        // Immediately trigger background prefetch for next chunk!
         if (settings.enablePrefetch !== false) {
-          prefetchTimeoutRef.current = setTimeout(() => {
-            if (chunkIdx + 1 < chapter.chunks.length) {
-              prefetchChunk(chapIdx, chunkIdx + 1);
-            } else if (autoNext && chapIdx + 1 < book.chapters.length) {
-              prefetchChunk(chapIdx + 1, 0);
-            }
-          }, 2500);
+          if (chunkIdx + 1 < chapter.chunks.length) {
+            prefetchChunk(chapIdx, chunkIdx + 1);
+          } else if (autoNext && chapIdx + 1 < book.chapters.length) {
+            prefetchChunk(chapIdx + 1, 0);
+          }
         }
       } catch (err: unknown) {
         console.error('Play chunk error:', err);
@@ -234,10 +302,6 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
     if (!audioRef.current) return;
 
     if (isPlaying) {
-      if (prefetchTimeoutRef.current) {
-        clearTimeout(prefetchTimeoutRef.current);
-        prefetchTimeoutRef.current = null;
-      }
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
@@ -252,10 +316,6 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
   // Jump to chapter
   const selectChapter = useCallback(
     (chapterIndex: number, startPlayImmediately = false) => {
-      if (prefetchTimeoutRef.current) {
-        clearTimeout(prefetchTimeoutRef.current);
-        prefetchTimeoutRef.current = null;
-      }
       setCurrentChapterIndex(chapterIndex);
       setCurrentChunkIndex(0);
       setCurrentTime(0);
@@ -320,5 +380,6 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
     skipRelative,
     toggleAutoNext,
     playChunk,
+    prefetchChunk,
   };
 }

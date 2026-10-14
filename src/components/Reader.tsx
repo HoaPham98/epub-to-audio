@@ -123,30 +123,45 @@ export function Reader({
                       Đoạn {chunk.index + 1} ({chunk.charCount} ký tự)
                     </span>
 
-                    <button
-                      onClick={() => onPlayChunk(currentChapterIndex, chunk.index)}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                        isCurrent && isPlaying
-                          ? 'bg-indigo-600 text-white'
-                          : isCurrent && isLoading
-                          ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'
-                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950'
-                      }`}
-                    >
-                      {isCurrent && isPlaying ? (
-                        <>
-                          <Volume2 className="h-3 w-3 animate-pulse" />
-                          <span>Đang đọc</span>
-                        </>
-                      ) : isCurrent && isLoading ? (
-                        <span>Đang tải audio...</span>
-                      ) : (
-                        <>
-                          <Play className="h-3 w-3" />
-                          <span>Nghe đoạn này</span>
-                        </>
+                    <div className="flex items-center gap-2">
+                      {status === 'ready' && !isCurrent && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                          ✓ Đã tải sẵn
+                        </span>
                       )}
-                    </button>
+                      {status === 'loading' && !isCurrent && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800 animate-pulse">
+                          Đang tải ngầm...
+                        </span>
+                      )}
+
+                      <button
+                        onClick={() => onPlayChunk(currentChapterIndex, chunk.index)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                          isCurrent && isPlaying
+                            ? 'bg-indigo-600 text-white'
+                            : isCurrent && isLoading
+                            ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'
+                            : status === 'ready'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950'
+                        }`}
+                      >
+                        {isCurrent && isPlaying ? (
+                          <>
+                            <Volume2 className="h-3 w-3 animate-pulse" />
+                            <span>Đang đọc</span>
+                          </>
+                        ) : isCurrent && isLoading ? (
+                          <span>Đang nạp âm thanh...</span>
+                        ) : (
+                          <>
+                            <Play className="h-3 w-3" />
+                            <span>{status === 'ready' ? 'Phát ngay' : 'Nghe đoạn này'}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   <p
