@@ -9,6 +9,53 @@ import {
 import { IndexedDBAudioCache, WebAudioStreamPlayer } from '@/infrastructure';
 import { useMediaSession } from './useMediaSession';
 
+// Sliding window prefetch constants: 800-1200 characters corresponds to ~50-75 seconds of audio buffer
+const MIN_PREFETCH_CHARS = 800;
+const MAX_PREFETCH_CHARS = 1200;
+
+/**
+ * Calculates the cumulative character count of queued chunks ahead of the playhead
+ * (strictly after currentChunkIndex up to and including targetChunkIndex).
+ */
+function calculateForwardBufferedChars(
+  currentChapIdx: number,
+  currentChunkIdx: number,
+  targetChapIdx: number,
+  targetChunkIdx: number,
+  book: EpubBook | null
+): number {
+  if (!book) return 0;
+  let totalChars = 0;
+  let curChap = currentChapIdx;
+  let curChunk = currentChunkIdx;
+
+  while (true) {
+    if (curChap > targetChapIdx || (curChap === targetChapIdx && curChunk >= targetChunkIdx)) {
+      break;
+    }
+
+    const chapter = book.chapters[curChap];
+    if (!chapter) break;
+
+    if (curChunk + 1 < chapter.chunks.length) {
+      curChunk++;
+    } else if (curChap + 1 < book.chapters.length) {
+      curChap++;
+      curChunk = 0;
+    } else {
+      break;
+    }
+
+    const targetChapter = book.chapters[curChap];
+    if (targetChapter && targetChapter.chunks[curChunk]) {
+      const c = targetChapter.chunks[curChunk];
+      totalChars += c.charCount || c.text.length;
+    }
+  }
+
+  return totalChars;
+}
+
 interface UseAudioStreamerProps {
   book: EpubBook | null;
   settings: TTSSettings;
@@ -197,12 +244,16 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
             if (!isPausedByUserRef.current) {
               audioPlayer.ensureAudioElementPlaying?.();
               setIsPlaying(true);
-              setChunkStatuses(prev => ({
-                ...prev,
-                [chunkIdx]: 'playing',
-              }));
+              if (!append && chapIdx === currentChapterIndex) {
+                setChunkStatuses(prev => ({
+                  ...prev,
+                  [chunkIdx]: 'playing',
+                }));
+              }
             }
-            setIsLoading(false);
+            if (!append) {
+              setIsLoading(false);
+            }
           },
           onNetworkDone: () => {
             // Network stream for this chunk is completed
@@ -213,42 +264,50 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
               setDuration(actual);
             }
 
+            // Mark completed chunk as ready (if not currently the active playing chunk)
+            if (chapIdx === currentChapterIndex) {
+              setChunkStatuses(prev => ({
+                ...prev,
+                [chunkIdx]: prev[chunkIdx] === 'playing' ? 'playing' : 'ready',
+              }));
+            }
+
             const currentTarget = latestQueuedTargetRef.current;
             if (
               currentTarget &&
               currentTarget.chapterIndex === chapIdx &&
               currentTarget.chunkIndex === chunkIdx
             ) {
-              const next = getNextTarget(chapIdx, chunkIdx);
-              if (next) {
-                // If user is paused, only allow buffering up to chunk N+1
-                if (isPausedByUserRef.current) {
-                  const pausedTarget = pausedTargetChunkRef.current;
-                  // If this was the paused chunk N, allow chaining to chunk N+1
-                  if (
-                    pausedTarget &&
-                    pausedTarget.chapterIndex === chapIdx &&
-                    pausedTarget.chunkIndex === chunkIdx
-                  ) {
-                    latestQueuedTargetRef.current = next;
-                    setBufferingChunk(next);
-                    streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
-                    return;
+              // Calculate cumulative forward buffered characters from playhead to latest target
+              const forwardChars = calculateForwardBufferedChars(
+                currentChapterIndex,
+                currentChunkIndex,
+                chapIdx,
+                chunkIdx,
+                book
+              );
+
+              // If forward buffer is below the target minimum threshold, continue prefetching
+              if (forwardChars < MIN_PREFETCH_CHARS) {
+                const next = getNextTarget(chapIdx, chunkIdx);
+                if (next) {
+                  latestQueuedTargetRef.current = next;
+                  setBufferingChunk(next);
+                  setIsBuffering(true);
+                  if (next.chapterIndex === currentChapterIndex) {
+                    setChunkStatuses(prev => ({
+                      ...prev,
+                      [next.chunkIndex]: 'loading',
+                    }));
                   }
-                  // Otherwise, chunk N+1 has finished buffering. Stop pre-buffering now!
-                  setBufferingChunk(null);
-                  setIsBuffering(false);
+                  streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
                   return;
                 }
-
-                // If playing normally, chain immediately
-                latestQueuedTargetRef.current = next;
-                setBufferingChunk(next);
-                streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
-              } else {
-                setBufferingChunk(null);
-                setIsBuffering(false);
               }
+
+              // Threshold reached (>= MIN_PREFETCH_CHARS) or reached end of book
+              setBufferingChunk(null);
+              setIsBuffering(false);
             } else {
               setBufferingChunk(null);
               setIsBuffering(false);
@@ -260,15 +319,21 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
           return;
         }
 
-        // If not paused by user, ensure playing status
-        if (!isPausedByUserRef.current) {
+        // If not paused by user, ensure playing status for manual/initial plays
+        if (!isPausedByUserRef.current && !append) {
           setIsPlaying(true);
         }
-        setIsLoading(false);
-        setChunkStatuses(prev => ({
-          ...prev,
-          [chunkIdx]: isPausedByUserRef.current ? 'ready' : 'playing',
-        }));
+        if (!append) {
+          setIsLoading(false);
+        }
+        if (chapIdx === currentChapterIndex) {
+          setChunkStatuses(prev => ({
+            ...prev,
+            [chunkIdx]: append
+              ? (prev[chunkIdx] || 'ready')
+              : (isPausedByUserRef.current ? 'ready' : 'playing'),
+          }));
+        }
       } catch (err: unknown) {
         if (controller.signal.aborted) return;
         isStreamingNetworkRef.current = false;
@@ -325,13 +390,24 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
 
     // Synchronized chunk boundary transitions: update UI highlight gaplessly
     const unsubChunkChange = audioPlayer.onChunkChange((chapIdx, chunkIdx) => {
-      setCurrentChapterIndex(chapIdx);
-      setCurrentChunkIndex(chunkIdx);
+      if (chapIdx !== currentChapterIndex) {
+        setCurrentChapterIndex(chapIdx);
+        setCurrentChunkIndex(chunkIdx);
+        const newStatuses: Record<number, ChunkStatus> = { [chunkIdx]: 'playing' };
+        if (latestQueuedTargetRef.current && latestQueuedTargetRef.current.chapterIndex === chapIdx) {
+          for (let i = chunkIdx + 1; i <= latestQueuedTargetRef.current.chunkIndex; i++) {
+            newStatuses[i] = 'ready';
+          }
+        }
+        setChunkStatuses(newStatuses);
+      } else {
+        setCurrentChunkIndex(chunkIdx);
+        setChunkStatuses(prev => ({
+          ...prev,
+          [chunkIdx]: 'playing',
+        }));
+      }
       saveProgress(chapIdx, chunkIdx);
-      setChunkStatuses(prev => ({
-        ...prev,
-        [chunkIdx]: 'playing',
-      }));
 
       const chap = book?.chapters[chapIdx];
       if (chap && chap.chunks[chunkIdx]) {
@@ -341,6 +417,33 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
         );
         setEstimatedDuration(prev => Math.max(prev, est));
         setDuration(prev => Math.max(prev, est));
+      }
+
+      // Check if sliding forward buffer needs replenishment
+      if (!isStreamingNetworkRef.current && latestQueuedTargetRef.current) {
+        const target = latestQueuedTargetRef.current;
+        const forwardChars = calculateForwardBufferedChars(
+          chapIdx,
+          chunkIdx,
+          target.chapterIndex,
+          target.chunkIndex,
+          book
+        );
+        if (forwardChars < MIN_PREFETCH_CHARS) {
+          const next = getNextTarget(target.chapterIndex, target.chunkIndex);
+          if (next) {
+            latestQueuedTargetRef.current = next;
+            setBufferingChunk(next);
+            setIsBuffering(true);
+            if (next.chapterIndex === chapIdx) {
+              setChunkStatuses(prev => ({
+                ...prev,
+                [next.chunkIndex]: 'loading',
+              }));
+            }
+            streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
+          }
+        }
       }
     });
 
@@ -366,7 +469,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       unsubEnded();
       unsubError();
     };
-  }, [audioPlayer, saveProgress, book]);
+  }, [audioPlayer, saveProgress, book, currentChapterIndex, getNextTarget]);
 
   // Play / Pause toggle
   const togglePlayPause = useCallback(() => {
@@ -391,15 +494,33 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       if (audioPlayer.getDuration() > 0 && currentTime < audioPlayer.getDuration()) {
         audioPlayer.play().then(() => {
           setIsPlaying(true);
-          // If network stream is idle, resume chaining if next chunk exists
+          // If network stream is idle, check if buffer needs more chunks
           if (!isStreamingNetworkRef.current && latestQueuedTargetRef.current) {
-            const next = getNextTarget(
-              latestQueuedTargetRef.current.chapterIndex,
-              latestQueuedTargetRef.current.chunkIndex
+            const target = latestQueuedTargetRef.current;
+            const forwardChars = calculateForwardBufferedChars(
+              currentChapterIndex,
+              currentChunkIndex,
+              target.chapterIndex,
+              target.chunkIndex,
+              book
             );
-            if (next) {
-              latestQueuedTargetRef.current = next;
-              streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
+            if (forwardChars < MIN_PREFETCH_CHARS) {
+              const next = getNextTarget(
+                target.chapterIndex,
+                target.chunkIndex
+              );
+              if (next) {
+                latestQueuedTargetRef.current = next;
+                setBufferingChunk(next);
+                setIsBuffering(true);
+                if (next.chapterIndex === currentChapterIndex) {
+                  setChunkStatuses(prev => ({
+                    ...prev,
+                    [next.chunkIndex]: 'loading',
+                  }));
+                }
+                streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
+              }
             }
           }
         });
@@ -415,6 +536,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     currentChapterIndex,
     currentChunkIndex,
     getNextTarget,
+    book,
   ]);
 
   // Jump to chapter
