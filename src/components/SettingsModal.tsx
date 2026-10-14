@@ -15,7 +15,13 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { TTSSettings } from '@/types';
-import { testTTSConnection, fetchAvailableVoices, VoiceOption } from '@/lib/tts';
+import {
+  testTTSConnection,
+  fetchAvailableVoices,
+  VoiceOption,
+  fetchAvailableModels,
+  ModelOption,
+} from '@/lib/tts';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -54,6 +60,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [fetchedVoices, setFetchedVoices] = useState<VoiceOption[]>([]);
   const [fetchingVoices, setFetchingVoices] = useState(false);
   const [voicesFeedback, setVoicesFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Auto-fetch models state
+  const [fetchedModels, setFetchedModels] = useState<ModelOption[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [modelsFeedback, setModelsFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   if (!isOpen) return null;
 
@@ -100,6 +111,41 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       });
     } finally {
       setFetchingVoices(false);
+    }
+  };
+
+  const handleFetchModels = async () => {
+    if (!formData.endpoint) {
+      setModelsFeedback({ type: 'error', message: 'Vui lòng nhập Endpoint URL trước.' });
+      return;
+    }
+    setFetchingModels(true);
+    setModelsFeedback(null);
+    try {
+      const models = await fetchAvailableModels(formData.endpoint, formData.apiKey, formData.useProxy);
+      if (models.length === 0) {
+        setModelsFeedback({
+          type: 'error',
+          message: 'Endpoint trả về 0 models. Hãy kiểm tra lại endpoint hoặc API key.',
+        });
+      } else {
+        setFetchedModels(models);
+        setModelsFeedback({
+          type: 'success',
+          message: `Đã tìm thấy ${models.length} models từ GET /v1/models!`,
+        });
+        const exists = models.some(m => m.id.toLowerCase() === formData.model.toLowerCase());
+        if (!exists && models.length > 0) {
+          setFormData(prev => ({ ...prev, model: models[0].id }));
+        }
+      }
+    } catch (err: unknown) {
+      setModelsFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Không thể tải danh sách models từ endpoint.',
+      });
+    } finally {
+      setFetchingModels(false);
     }
   };
 
@@ -214,18 +260,78 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             </p>
           </div>
 
-          {/* Model Name */}
-          <div>
-            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-              Model TTS
-            </label>
+          {/* Model Name with Auto-Fetch from GET /v1/models */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/70 dark:bg-zinc-900/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                Model TTS
+              </label>
+
+              {/* Auto-Fetch Models Button */}
+              <button
+                type="button"
+                disabled={fetchingModels}
+                onClick={handleFetchModels}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-medium border border-indigo-200 dark:border-indigo-800 transition-colors disabled:opacity-50"
+                title="Tự động gọi GET /v1/models từ endpoint để lấy danh sách models"
+              >
+                <RefreshCw className={`h-3 w-3 ${fetchingModels ? 'animate-spin' : ''}`} />
+                <span>{fetchingModels ? 'Đang lấy models...' : 'Tự động lấy models (/v1/models)'}</span>
+              </button>
+            </div>
+
+            {/* Direct Input Field */}
             <input
               type="text"
               value={formData.model}
               onChange={e => setFormData({ ...formData, model: e.target.value })}
-              placeholder="tts-1 hoặc tts-1-hd"
-              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:border-indigo-500 focus:outline-hidden"
+              placeholder="tts-1, tts-1-hd, hoặc tên model riêng..."
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-900 dark:text-zinc-100 focus:border-indigo-500 focus:outline-hidden"
             />
+
+            {/* Models Feedback Banner */}
+            {modelsFeedback && (
+              <p
+                className={`text-[11px] font-medium ${
+                  modelsFeedback.type === 'success'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}
+              >
+                {modelsFeedback.message}
+              </p>
+            )}
+
+            {/* Fetched Models or Suggestions */}
+            <div>
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1">
+                {fetchedModels.length > 0
+                  ? `Models từ server (${fetchedModels.length} models):`
+                  : 'Gợi ý models phổ biến:'}
+              </p>
+              <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto p-1 bg-white/50 dark:bg-zinc-800/40 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                {(fetchedModels.length > 0
+                  ? fetchedModels
+                  : [{ id: 'tts-1', name: 'tts-1' }, { id: 'tts-1-hd', name: 'tts-1-hd' }]
+                ).map(m => {
+                  const isSelected = formData.model.toLowerCase() === m.id.toLowerCase();
+                  return (
+                    <button
+                      type="button"
+                      key={m.id}
+                      onClick={() => setFormData({ ...formData, model: m.id })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-2xs font-semibold'
+                          : 'bg-zinc-100 dark:bg-zinc-700/60 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                      }`}
+                    >
+                      {m.name || m.id}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* Voice Input with Auto-Fetch from GET /v1/voices */}

@@ -364,3 +364,105 @@ function extractVoicesList(data: unknown): VoiceOption[] {
 
   return voices;
 }
+
+export interface ModelOption {
+  id: string;
+  name?: string;
+}
+
+/**
+ * Fetches the list of available models from GET /v1/models.
+ */
+export async function fetchAvailableModels(
+  endpoint: string,
+  apiKey: string,
+  useProxy = false
+): Promise<ModelOption[]> {
+  let cleanEndpoint = (endpoint || 'https://api.openai.com/v1').trim().replace(/\/+$/, '');
+  if (cleanEndpoint.endsWith('/audio/speech')) {
+    cleanEndpoint = cleanEndpoint.replace(/\/audio\/speech$/, '');
+  }
+  const targetUrl = cleanEndpoint.endsWith('/models')
+    ? cleanEndpoint
+    : `${cleanEndpoint}/models`;
+
+  let rawData: unknown = null;
+
+  // 1. Try direct fetch first if not forced proxy
+  if (!useProxy) {
+    try {
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (apiKey && apiKey.trim()) {
+        headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+      }
+      const res = await fetch(targetUrl, { method: 'GET', headers });
+      if (res.ok) {
+        rawData = await res.json();
+      }
+    } catch {
+      // Direct fetch failed (likely CORS), will try proxy
+    }
+  }
+
+  // 2. Fall back to /api/models-proxy
+  if (!rawData) {
+    const proxyRes = await fetch('/api/models-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: cleanEndpoint, apiKey }),
+    });
+
+    if (!proxyRes.ok) {
+      let errMsg = `Không thể tải danh sách models (${proxyRes.status})`;
+      try {
+        const errJson = await proxyRes.json();
+        if (errJson?.error) errMsg = errJson.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(errMsg);
+    }
+    rawData = await proxyRes.json();
+  }
+
+  return extractModelsList(rawData);
+}
+
+function extractModelsList(data: unknown): ModelOption[] {
+  if (!data) return [];
+
+  let list: unknown[] = [];
+  if (Array.isArray(data)) {
+    list = data;
+  } else if (typeof data === 'object') {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.data)) {
+      list = obj.data;
+    } else if (Array.isArray(obj.models)) {
+      list = obj.models;
+    } else if (Array.isArray(obj.items)) {
+      list = obj.items;
+    } else {
+      const keys = Object.keys(obj);
+      if (keys.length > 0 && typeof obj[keys[0]] === 'object') {
+        return keys.map(k => ({ id: k, name: k }));
+      }
+    }
+  }
+
+  const models: ModelOption[] = [];
+  for (const item of list) {
+    if (typeof item === 'string') {
+      models.push({ id: item, name: item });
+    } else if (item && typeof item === 'object') {
+      const m = item as Record<string, unknown>;
+      const id = String(m.id || m.model || m.name || '');
+      const name = String(m.name || m.label || id);
+      if (id) {
+        models.push({ id, name });
+      }
+    }
+  }
+
+  return models;
+}
