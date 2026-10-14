@@ -2,7 +2,7 @@
 
 ## 1. Dependencies & PWA Assets Setup
 
-- [x] 1.1 Install `@serwist/next` via pnpm and verify `package.json` and lockfile updates
+- [x] 1.1 Set up PWA dependencies and verify package.json and lockfile
 - [x] 1.2 Create PWA icons (`icon-192x192.png`, `icon-512x512.png`, `maskable-icon-512x512.png`) in `public/icons/` and verify files exist
 
 ## 2. Background Audio Playback Engine
@@ -17,10 +17,10 @@
 - [x] 3.2 Wire action handlers (`play`, `pause`, `previoustrack`, `nexttrack`, `seekbackward`, `seekforward`, `setPositionState`) in `useAudioStreamer.ts`
 - [x] 3.3 Verify chunk navigation and relative seek (10s) trigger smoothly from system notification events
 
-## 4. PWA Manifest & Serwist Service Worker
+## 4. PWA Manifest & Native Service Worker
 
 - [x] 4.1 Create `src/app/manifest.ts` defining metadata, standalone display mode, theme colors, and icons
-- [x] 4.2 Configure Serwist service worker in `src/app/sw.ts` and integrate with `next.config.ts` for App Shell and asset precaching
+- [x] 4.2 Implement native PWA service worker in `public/sw.js` for App Shell and asset precaching with Turbopack support
 - [x] 4.3 Update `src/app/layout.tsx` with PWA meta tags, theme color, and apple-touch-icon links
 
 ## 5. In-App Install Prompt & Offline Integration

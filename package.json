@@ -4,20 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
-    "@serwist/next": "^9.5.13",
     "epubjs": "^0.3.93",
     "idb": "^8.0.4",
     "jszip": "^3.10.2",
     "lucide-react": "^1.55.0",
     "next": "16.4.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "serwist": "^9.5.13"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
