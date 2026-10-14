@@ -13,27 +13,25 @@ interface BeforeInstallPromptEvent extends Event {
 
 export function usePwaInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState<boolean>(false);
-  const [isIos, setIsIos] = useState<boolean>(false);
+  const [isInstalled, setIsInstalled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true
+    );
+  });
+  const [isIos, setIsIos] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    return (
+      /iphone|ipad|ipod/.test(userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    );
+  });
   const [showIosModal, setShowIosModal] = useState<boolean>(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
-    // Check if already in standalone / installed mode
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-
-    setIsInstalled(isStandalone);
-
-    // Detect iOS
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    const isIosDevice =
-      /iphone|ipad|ipod/.test(userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-    setIsIos(isIosDevice);
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();

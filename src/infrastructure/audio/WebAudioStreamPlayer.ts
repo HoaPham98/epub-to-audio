@@ -39,6 +39,8 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private endedCallbacks: Set<() => void> = new Set();
   private errorCallbacks: Set<(e: Error) => void> = new Set();
   private tickerInterval: number | null = null;
+  private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
+  private hasBoundVisibilityListener = false;
   private gainNode: GainNode | null = null;
   private audioElement: HTMLAudioElement | null = null;
   private isInternalPauseAction = false;
@@ -64,46 +66,103 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.audioContext = new AudioCtx();
     }
 
+    // Configure W3C AudioSession if available (e.g. iOS Safari 16.4+)
+    if (typeof navigator !== 'undefined' && 'audioSession' in navigator) {
+      try {
+        (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'playback';
+      } catch (err) {
+        console.warn('Failed to set navigator.audioSession.type to playback:', err);
+      }
+    }
+
     if (!this.gainNode) {
       this.gainNode = this.audioContext.createGain();
       this.gainNode.gain.value = this.volume;
-      this.gainNode.connect(this.audioContext.destination);
+
+      // Connect gainNode to MediaStreamDestination for HTML5 audio element bridge (iOS Safari background playback)
+      if (typeof this.audioContext.createMediaStreamDestination === 'function') {
+        try {
+          this.mediaStreamDestination = this.audioContext.createMediaStreamDestination();
+          this.gainNode.connect(this.mediaStreamDestination);
+        } catch (err) {
+          console.warn('Failed to createMediaStreamDestination, falling back to audioContext.destination', err);
+          this.gainNode.connect(this.audioContext.destination);
+        }
+      } else {
+        this.gainNode.connect(this.audioContext.destination);
+      }
     }
 
-    if (typeof document !== 'undefined' && !this.audioElement) {
-      let el = document.getElementById('background-audio-bridge') as HTMLAudioElement | null;
-      if (!el) {
-        el = document.createElement('audio');
-        el.id = 'background-audio-bridge';
-        el.style.position = 'fixed';
-        el.style.top = '-9999px';
-        el.style.left = '-9999px';
-        el.style.opacity = '0';
-        el.style.pointerEvents = 'none';
-        el.setAttribute('playsinline', 'true');
-        el.setAttribute('webkit-playsinline', 'true');
-        el.setAttribute('x-webkit-airplay', 'allow');
-        el.loop = true;
-        el.preload = 'auto';
-        el.crossOrigin = 'anonymous';
-        el.src = '/silence-10s.wav';
-        document.body.appendChild(el);
+    if (typeof document !== 'undefined') {
+      if (!this.audioElement) {
+        let el = document.getElementById('background-audio-bridge') as HTMLAudioElement | null;
+        if (!el) {
+          el = document.createElement('audio');
+          el.id = 'background-audio-bridge';
+          el.style.position = 'fixed';
+          el.style.top = '-9999px';
+          el.style.left = '-9999px';
+          el.style.opacity = '0';
+          el.style.pointerEvents = 'none';
+          el.setAttribute('playsinline', 'true');
+          el.setAttribute('webkit-playsinline', 'true');
+          el.setAttribute('x-webkit-airplay', 'allow');
+          el.preload = 'auto';
+          document.body.appendChild(el);
+        }
+        this.audioElement = el;
+
+        // External pause listener (e.g. bluetooth disconnect, headphone unplugged, audio focus loss)
+        this.audioElement.addEventListener('pause', () => {
+          if (this.isCurrentlyPlaying && !this.isInternalPauseAction) {
+            // Guard against lockscreen / background transient interruption on iOS/mobile
+            if (typeof document !== 'undefined' && document.hidden) {
+              this.ensureAudioElementPlaying().catch(() => {});
+              return;
+            }
+            this.pause();
+          }
+        });
+
+        // External play listener (e.g. bluetooth media button, headset resume)
+        this.audioElement.addEventListener('play', () => {
+          if (this.playerState === 'paused' && !this.isInternalPauseAction) {
+            this.play();
+          }
+        });
       }
-      this.audioElement = el;
 
-      // External pause listener (e.g. bluetooth disconnect, headphone unplugged, audio focus loss)
-      this.audioElement.addEventListener('pause', () => {
-        if (this.isCurrentlyPlaying && !this.isInternalPauseAction) {
-          this.pause();
+      if (this.audioElement && this.mediaStreamDestination) {
+        try {
+          if (this.audioElement.srcObject !== this.mediaStreamDestination.stream) {
+            this.audioElement.srcObject = this.mediaStreamDestination.stream;
+          }
+        } catch (err) {
+          console.warn('Failed to assign srcObject to audioElement, connecting gainNode to destination:', err);
+          if (this.gainNode && this.audioContext) {
+            try {
+              this.gainNode.connect(this.audioContext.destination);
+            } catch {}
+          }
         }
-      });
+      }
 
-      // External play listener (e.g. bluetooth media button, headset resume)
-      this.audioElement.addEventListener('play', () => {
-        if (this.playerState === 'paused' && !this.isInternalPauseAction) {
-          this.play();
-        }
-      });
+      // Auto-resume AudioContext on returning to foreground
+      if (!this.hasBoundVisibilityListener) {
+        this.hasBoundVisibilityListener = true;
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            if (this.playerState === 'playing' && this.audioContext && this.audioContext.state === 'suspended') {
+              this.audioContext.resume().catch(e => {
+                console.warn('Failed to auto-resume AudioContext on visibilitychange:', e);
+              });
+            }
+            if (this.playerState === 'playing' && this.audioElement && this.audioElement.paused) {
+              this.ensureAudioElementPlaying().catch(() => {});
+            }
+          }
+        });
+      }
     }
 
     // Strict suspension lock: if player is paused, do NOT resume audioContext

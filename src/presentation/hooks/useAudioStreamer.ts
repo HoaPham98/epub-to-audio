@@ -88,7 +88,13 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
 
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const isStreamingNetworkRef = useRef<boolean>(false);
+  const [latestQueuedTarget, setLatestQueuedTarget] = useState<{ chapterIndex: number; chunkIndex: number } | null>(null);
   const latestQueuedTargetRef = useRef<{ chapterIndex: number; chunkIndex: number } | null>(null);
+
+  const updateLatestQueuedTarget = useCallback((target: { chapterIndex: number; chunkIndex: number } | null) => {
+    latestQueuedTargetRef.current = target;
+    setLatestQueuedTarget(target);
+  }, []);
   const isPausedByUserRef = useRef<boolean>(false);
   const pausedTargetChunkRef = useRef<{ chapterIndex: number; chunkIndex: number } | null>(null);
 
@@ -205,10 +211,11 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       // If starting fresh (user click or skip), abort previous and reset player
       if (!append) {
         abortUseCase.execute(activeAbortControllerRef.current);
+        audioPlayer.ensureAudioElementPlaying?.();
         setCurrentChapterIndex(chapIdx);
         setCurrentChunkIndex(chunkIdx);
         saveProgress(chapIdx, chunkIdx);
-        latestQueuedTargetRef.current = { chapterIndex: chapIdx, chunkIndex: chunkIdx };
+        updateLatestQueuedTarget({ chapterIndex: chapIdx, chunkIndex: chunkIdx });
         setIsLoading(true);
         setChunkStatuses({ [chunkIdx]: 'loading' });
 
@@ -299,7 +306,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
               if (forwardChars < MIN_PREFETCH_CHARS) {
                 const next = getNextTarget(chapIdx, chunkIdx);
                 if (next) {
-                  latestQueuedTargetRef.current = next;
+                  updateLatestQueuedTarget(next);
                   setBufferingChunk(next);
                   setIsBuffering(true);
                   if (next.chapterIndex === currentChapterIndex) {
@@ -440,7 +447,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
         if (forwardChars < MIN_PREFETCH_CHARS) {
           const next = getNextTarget(target.chapterIndex, target.chunkIndex);
           if (next) {
-            latestQueuedTargetRef.current = next;
+            updateLatestQueuedTarget(next);
             setBufferingChunk(next);
             setIsBuffering(true);
             if (next.chapterIndex === chapIdx) {
@@ -559,7 +566,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
 
     // Chapter buffered time
     let buffTime = currTime;
-    const target = latestQueuedTargetRef.current;
+    const target = latestQueuedTarget;
     if (target) {
       if (target.chapterIndex > currentChapterIndex) {
         buffTime = totalDuration;
@@ -582,7 +589,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       forwardBufferSeconds: fwdBuffer,
       isChapterFullyBuffered: fullyBuffered,
     };
-  }, [book, currentChapterIndex, currentChunkIndex, currentTime, getChunkDuration, audioPlayer]);
+  }, [book, currentChapterIndex, currentChunkIndex, currentTime, getChunkDuration, audioPlayer, latestQueuedTarget]);
 
   // Explicit Pause Audio
   const pauseAudio = useCallback(() => {
@@ -645,7 +652,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       activeAbortControllerRef.current = null;
       isStreamingNetworkRef.current = false;
       setIsBuffering(false);
-      latestQueuedTargetRef.current = null;
+      updateLatestQueuedTarget(null);
 
       audioPlayer.stop();
       setCurrentChapterIndex(chapterIndex);
