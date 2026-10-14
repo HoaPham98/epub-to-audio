@@ -1,79 +1,95 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Header } from '@/components/Header';
-import { Sidebar } from '@/components/Sidebar';
-import { Reader } from '@/components/Reader';
-import { AudioPlayerBar } from '@/components/AudioPlayerBar';
-import { SettingsModal } from '@/components/SettingsModal';
-import { CacheModal } from '@/components/CacheModal';
-import { useAudioPlayer } from '@/hooks/useAudioPlayer';
-import { EpubBook, TTSSettings } from '@/types';
-import { parseEpubFile } from '@/lib/epubParser';
-import { getCacheStats, getSavedBook, saveCurrentBook } from '@/lib/db';
-import { chunkChapterText } from '@/lib/chunker';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Header } from '@/presentation/components';
+import { Sidebar } from '@/presentation/components';
+import { Reader } from '@/presentation/components';
+import { AudioPlayerBar } from '@/presentation/components';
+import { SettingsModal } from '@/presentation/components';
+import { CacheModal } from '@/presentation/components';
+import { useAudioStreamer } from '@/presentation/hooks';
+import { EpubBook, TTSSettings } from '@/domain';
+import {
+  ManageAudioCacheUseCase,
+  ParseAndLoadBookUseCase,
+} from '@/application';
+import {
+  IndexedDBBookRepository,
+  SentenceBoundaryChunker,
+} from '@/infrastructure';
 
 const DEFAULT_SETTINGS: TTSSettings = {
-  endpoint: 'https://api.openai.com/v1',
+  endpoint: 'http://localhost:8000/v1',
   apiKey: '',
-  model: 'tts-1',
-  voice: 'alloy',
-  responseFormat: 'wav',
+  model: 'vieneu-v3-turbo',
+  voice: 'Mai Anh',
+  responseFormat: 'pcm',
+  sampleRate: 24000,
   speed: 1.0,
   useProxy: false,
+  enablePrefetch: true,
+  maxChars: 256,
+  temperature: 0.8,
+  topK: 25,
+  topP: 0.95,
+  repetitionPenalty: 1.2,
 };
 
 export default function Home() {
   const [book, setBook] = useState<EpubBook | null>(null);
-  const [settings, setSettings] = useState<TTSSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<TTSSettings>(() => {
+    if (typeof window === 'undefined') return DEFAULT_SETTINGS;
+    try {
+      const saved = localStorage.getItem('epub_tts_settings');
+      if (saved) {
+        return {
+          ...DEFAULT_SETTINGS,
+          ...JSON.parse(saved),
+          responseFormat: JSON.parse(saved).responseFormat || 'pcm',
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_SETTINGS;
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCacheOpen, setIsCacheOpen] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [cacheStats, setCacheStats] = useState({ count: 0, estimatedSizeMB: 0 });
 
-  // Load settings from localStorage & saved book from IndexedDB
-  useEffect(() => {
-    try {
-      const savedSettings = localStorage.getItem('epub_tts_settings');
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings);
-        setSettings({
-          ...DEFAULT_SETTINGS,
-          ...parsed,
-          responseFormat: parsed.responseFormat || 'wav',
-        });
-      }
-    } catch (e) {
-      console.warn('Failed to parse saved settings', e);
-    }
+  const bookRepo = useMemo(() => new IndexedDBBookRepository(), []);
+  const parseBookUseCase = useMemo(() => new ParseAndLoadBookUseCase(bookRepo), [bookRepo]);
+  const cacheUseCase = useMemo(() => new ManageAudioCacheUseCase(), []);
+  const chunker = useMemo(() => new SentenceBoundaryChunker(), []);
 
-    // Load last uploaded book & auto-rechunk to 300-400 characters
-    getSavedBook().then(saved => {
+  const refreshCacheStats = useCallback(() => {
+    cacheUseCase.getStats().then(setCacheStats);
+  }, [cacheUseCase]);
+
+  // Load saved book from IndexedDB & refresh stats
+  useEffect(() => {
+    bookRepo.getSavedBook().then(saved => {
       if (saved) {
-        const hasLargeChunks = saved.chapters.some(ch => ch.chunks.some(ck => ck.charCount > 450));
+        const hasLargeChunks = saved.chapters.some(ch => ch.chunks.some(ck => ck.charCount > 350));
         if (hasLargeChunks) {
           const updatedChapters = saved.chapters.map(ch => ({
             ...ch,
-            chunks: chunkChapterText(ch.index, ch.rawText),
+            chunks: chunker.chunkText(ch.index, ch.rawText, { minChars: 200, maxChars: 300 }),
           }));
           const totalChunks = updatedChapters.reduce((acc, ch) => acc + ch.chunks.length, 0);
           const updatedBook = { ...saved, chapters: updatedChapters, totalChunks };
           setBook(updatedBook);
-          saveCurrentBook(updatedBook);
+          bookRepo.saveBook(updatedBook);
         } else {
           setBook(saved);
         }
       }
     });
 
-    // Load cache stats
     refreshCacheStats();
-  }, []);
-
-  const refreshCacheStats = useCallback(() => {
-    getCacheStats().then(setCacheStats);
-  }, []);
+  }, [bookRepo, chunker, refreshCacheStats]);
 
   const handleSaveSettings = (newSettings: TTSSettings) => {
     setSettings(newSettings);
@@ -83,9 +99,8 @@ export default function Home() {
   const handleFileUpload = async (file: File) => {
     setIsParsing(true);
     try {
-      const parsedBook = await parseEpubFile(file);
+      const parsedBook = await parseBookUseCase.execute(file);
       setBook(parsedBook);
-      await saveCurrentBook(parsedBook);
     } catch (error: unknown) {
       alert(error instanceof Error ? error.message : 'Lỗi khi đọc file EPUB');
     } finally {
@@ -98,10 +113,8 @@ export default function Home() {
     try {
       const res = await fetch('/sample-book.epub');
       const blob = await res.blob();
-      const file = new File([blob], 'Hoang-Tu-Be-Mau.epub', { type: 'application/epub+zip' });
-      const parsedBook = await parseEpubFile(file);
+      const parsedBook = await parseBookUseCase.execute(blob, 'Hoang-Tu-Be-Mau.epub');
       setBook(parsedBook);
-      await saveCurrentBook(parsedBook);
     } catch (e) {
       alert('Không thể tải sách mẫu: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -109,7 +122,7 @@ export default function Home() {
     }
   };
 
-  const audioPlayer = useAudioPlayer({
+  const audioPlayer = useAudioStreamer({
     book,
     settings,
     onOpenSettings: () => setIsSettingsOpen(true),
