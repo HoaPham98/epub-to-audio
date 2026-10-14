@@ -36,32 +36,38 @@ export class VieNeuStreamTTSClient implements ITTSStreamingService {
 
     let response: Response | null = null;
 
-    // 1. Attempt direct connection if not forcing proxy
-    if (!settings.useProxy) {
-      try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream',
-        };
-        if (settings.apiKey?.trim()) {
-          headers['Authorization'] = `Bearer ${settings.apiKey.trim()}`;
-        }
-        response = await fetch(directUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(requestBody),
-          signal,
-        });
-      } catch (err: unknown) {
-        if (signal?.aborted) throw err;
-        console.warn('[VieNeuStreamTTSClient] Direct fetch failed, falling back to proxy...', err);
-      }
-    }
+    const maxRetries = 3;
+    const backoffDelays = [1000, 2000, 4000];
 
-    // 2. Fall back to proxy if direct connection was skipped or failed
-    if (!response || !response.ok) {
+    const doFetch = async (): Promise<Response> => {
+      // 1. Attempt direct connection if not forcing proxy
+      if (!settings.useProxy) {
+        try {
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+          };
+          if (settings.apiKey?.trim()) {
+            headers['Authorization'] = `Bearer ${settings.apiKey.trim()}`;
+          }
+          const res = await fetch(directUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(requestBody),
+            signal,
+          });
+          if (res.ok || res.status === 429) {
+            return res;
+          }
+        } catch (err: unknown) {
+          if (signal?.aborted) throw err;
+          console.warn('[VieNeuStreamTTSClient] Direct fetch failed, falling back to proxy...', err);
+        }
+      }
+
+      // 2. Fall back to proxy if direct connection was skipped or failed
       const proxyUrl = '/api/tts-proxy';
-      response = await fetch(proxyUrl, {
+      return fetch(proxyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -74,10 +80,41 @@ export class VieNeuStreamTTSClient implements ITTSStreamingService {
         }),
         signal,
       });
+    };
+
+    let attempt = 0;
+    while (true) {
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      response = await doFetch();
+
+      if (response.status === 429 && attempt < maxRetries) {
+        const retryAfterHeader = response.headers.get('Retry-After');
+        let delayMs = backoffDelays[attempt] || 4000;
+        if (retryAfterHeader) {
+          const parsedSeconds = parseInt(retryAfterHeader, 10);
+          if (!isNaN(parsedSeconds) && parsedSeconds > 0) {
+            delayMs = parsedSeconds * 1000;
+          }
+        }
+        console.warn(
+          `[VieNeuStreamTTSClient] HTTP 429 Server Busy. Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})...`
+        );
+        await new Promise(r => setTimeout(r, delayMs));
+        attempt++;
+        continue;
+      }
+
+      break;
     }
 
     if (!response.ok) {
       let errMsg = `Lỗi ${response.status}: ${response.statusText}`;
+      if (response.status === 429) {
+        errMsg = 'Máy chủ VieNeu-TTS đang bận (HTTP 429). Vui lòng thử lại sau giây lát.';
+      }
       try {
         const errJson = await response.json();
         if (errJson?.error?.message) errMsg = errJson.error.message;

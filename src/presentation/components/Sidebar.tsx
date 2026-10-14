@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { Upload, Book, Play, Volume2, Search, FileText, RefreshCw } from 'lucide-react';
+import { Upload, Book, Play, Volume2, Search, FileText, RefreshCw, BookOpen, X } from 'lucide-react';
 import { EpubBook } from '@/domain';
 
 interface SidebarProps {
@@ -50,18 +50,46 @@ export function Sidebar({
       {isOpen && (
         <div
           onClick={onClose}
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs md:hidden"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs md:hidden"
         />
       )}
 
-      {/* Sidebar Container */}
+      {/* Sidebar Container: Full Height 100vh */}
       <aside
-        className={`fixed top-16 bottom-24 z-40 flex w-80 flex-col border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 transition-transform duration-300 md:static md:bottom-0 md:translate-x-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 transition-all duration-300 md:static md:h-screen md:shrink-0 ${
+          isOpen
+            ? 'w-80 translate-x-0 opacity-100'
+            : '-translate-x-full md:w-0 md:translate-x-0 md:overflow-hidden md:border-r-0 md:opacity-0'
         }`}
       >
-        {/* Top: Upload or Book Summary */}
-        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="flex flex-col h-full w-80 overflow-hidden">
+          {/* Top: Sidebar Branding Header */}
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-amber-500 to-indigo-600 text-white shadow-sm shadow-indigo-500/20">
+              <BookOpen className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm leading-tight">
+                EPUB to Audio
+              </h1>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                VieNeu TTS Reader
+              </p>
+            </div>
+          </div>
+          {/* Close button on mobile */}
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 md:hidden"
+            aria-label="Đóng menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Upload or Book Summary */}
+        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
           <input
             type="file"
             ref={fileInputRef}
@@ -175,7 +203,7 @@ export function Sidebar({
         )}
 
         {/* ToC Chapter List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 overflow-y-auto p-2 pb-6 space-y-1 min-h-0">
           {!book ? (
             <div className="flex flex-col items-center justify-center h-48 text-center p-4">
               <FileText className="h-8 w-8 text-zinc-300 dark:text-zinc-700 mb-2" />
@@ -242,7 +270,8 @@ export function Sidebar({
             })
           )}
         </div>
-      </aside>
-    </>
-  );
+      </div>
+    </aside>
+  </>
+);
 }

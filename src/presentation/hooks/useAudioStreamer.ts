@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChunkStatus, EpubBook, TTSSettings } from '@/domain';
+import { ChunkStatus, EpubBook, TTSSettings, estimateSpeechDuration } from '@/domain';
 import {
   AbortActiveStreamUseCase,
   StreamAndPlayChunkUseCase,
@@ -19,8 +19,12 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   const [currentChunkIndex, setCurrentChunkIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isBuffering, setIsBuffering] = useState<boolean>(false);
+  const [bufferingChunk, setBufferingChunk] = useState<{ chapterIndex: number; chunkIndex: number } | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
+  const [estimatedDuration, setEstimatedDuration] = useState<number>(0);
+  const [bufferedTime, setBufferedTime] = useState<number>(0);
   const [autoNext, setAutoNext] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
     const saved = localStorage.getItem('epub_tts_auto_next');
@@ -36,7 +40,12 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const isStreamingNetworkRef = useRef<boolean>(false);
   const latestQueuedTargetRef = useRef<{ chapterIndex: number; chunkIndex: number } | null>(null);
-  const streamChunkRef = useRef<(chapIdx: number, chunkIdx: number, append: boolean) => Promise<void>>(async () => {});
+  const isPausedByUserRef = useRef<boolean>(false);
+  const pausedTargetChunkRef = useRef<{ chapterIndex: number; chunkIndex: number } | null>(null);
+
+  const streamChunkRef = useRef<(chapIdx: number, chunkIdx: number, append: boolean) => Promise<void>>(
+    async () => {}
+  );
 
   const streamAndPlayUseCase = useMemo(
     () => new StreamAndPlayChunkUseCase(audioPlayer, audioCache),
@@ -121,7 +130,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     [book, autoNext]
   );
 
-  // Stream subsequent chunk seamlessly with append=true
+  // Stream chunk internal implementation
   const streamChunkInternal = useCallback(
     async (
       chapIdx: number,
@@ -144,7 +153,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
 
       setErrorMessage(null);
 
-      // If starting fresh (user click), abort any active stream and reset player
+      // If starting fresh (user click or skip), abort previous and reset player
       if (!append) {
         abortUseCase.execute(activeAbortControllerRef.current);
         setCurrentChapterIndex(chapIdx);
@@ -153,11 +162,20 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
         latestQueuedTargetRef.current = { chapterIndex: chapIdx, chunkIndex: chunkIdx };
         setIsLoading(true);
         setChunkStatuses({ [chunkIdx]: 'loading' });
+
+        const charCount = chapter.chunks[chunkIdx].charCount || chapter.chunks[chunkIdx].text.length;
+        const est = estimateSpeechDuration(charCount, 16);
+        setEstimatedDuration(est);
+        setDuration(est);
+        setCurrentTime(0);
+        setBufferedTime(0);
       }
 
       const controller = new AbortController();
       activeAbortControllerRef.current = controller;
       isStreamingNetworkRef.current = true;
+      setIsBuffering(true);
+      setBufferingChunk({ chapterIndex: chapIdx, chunkIndex: chunkIdx });
 
       try {
         const text = chapter.chunks[chunkIdx].text;
@@ -172,11 +190,27 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
           },
           append,
           signal: controller.signal,
+          onFirstData: () => {
+            if (controller.signal.aborted) return;
+            // First audio packet arrived (~300ms lead-in): audio output starts immediately!
+            if (!isPausedByUserRef.current) {
+              setIsPlaying(true);
+              setChunkStatuses(prev => ({
+                ...prev,
+                [chunkIdx]: 'playing',
+              }));
+            }
+            setIsLoading(false);
+          },
           onNetworkDone: () => {
-            // Network stream for this chunk is finished. Server slot is now free!
+            // Network stream for this chunk is completed
             isStreamingNetworkRef.current = false;
+            const actual = audioPlayer.getDuration();
+            if (actual > 0) {
+              setEstimatedDuration(actual);
+              setDuration(actual);
+            }
 
-            // Immediately chain the next chunk if auto-chaining is active and we are still playing
             const currentTarget = latestQueuedTargetRef.current;
             if (
               currentTarget &&
@@ -185,10 +219,37 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
             ) {
               const next = getNextTarget(chapIdx, chunkIdx);
               if (next) {
+                // If user is paused, only allow buffering up to chunk N+1
+                if (isPausedByUserRef.current) {
+                  const pausedTarget = pausedTargetChunkRef.current;
+                  // If this was the paused chunk N, allow chaining to chunk N+1
+                  if (
+                    pausedTarget &&
+                    pausedTarget.chapterIndex === chapIdx &&
+                    pausedTarget.chunkIndex === chunkIdx
+                  ) {
+                    latestQueuedTargetRef.current = next;
+                    setBufferingChunk(next);
+                    streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
+                    return;
+                  }
+                  // Otherwise, chunk N+1 has finished buffering. Stop pre-buffering now!
+                  setBufferingChunk(null);
+                  setIsBuffering(false);
+                  return;
+                }
+
+                // If playing normally, chain immediately
                 latestQueuedTargetRef.current = next;
-                // Strict sequential chaining: chunk N+1 streams immediately with 0 queue wait
+                setBufferingChunk(next);
                 streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
+              } else {
+                setBufferingChunk(null);
+                setIsBuffering(false);
               }
+            } else {
+              setBufferingChunk(null);
+              setIsBuffering(false);
             }
           },
         });
@@ -197,15 +258,20 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
           return;
         }
 
-        setIsPlaying(true);
+        // If not paused by user, ensure playing status
+        if (!isPausedByUserRef.current) {
+          setIsPlaying(true);
+        }
         setIsLoading(false);
         setChunkStatuses(prev => ({
           ...prev,
-          [chunkIdx]: 'playing',
+          [chunkIdx]: isPausedByUserRef.current ? 'ready' : 'playing',
         }));
       } catch (err: unknown) {
         if (controller.signal.aborted) return;
         isStreamingNetworkRef.current = false;
+        setIsBuffering(false);
+        setBufferingChunk(null);
         console.error('Stream chunk error:', err);
         const msg = err instanceof Error ? err.message : 'Lỗi khi gọi API TTS';
         setErrorMessage(msg);
@@ -217,7 +283,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
         setIsLoading(false);
       }
     },
-    [book, settings, onOpenSettings, abortUseCase, saveProgress, streamAndPlayUseCase, getNextTarget]
+    [book, settings, onOpenSettings, abortUseCase, saveProgress, streamAndPlayUseCase, getNextTarget, audioPlayer]
   );
 
   useEffect(() => {
@@ -227,17 +293,28 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   // Play a specific chunk from the beginning (manual user interaction)
   const playChunk = useCallback(
     (chapIdx: number, chunkIdx: number) => {
+      isPausedByUserRef.current = false;
+      pausedTargetChunkRef.current = null;
       streamChunkInternal(chapIdx, chunkIdx, false);
     },
     [streamChunkInternal]
   );
 
+  // Retry action for recoverable errors
+  const retryActiveStream = useCallback(() => {
+    setErrorMessage(null);
+    playChunk(currentChapterIndex, currentChunkIndex);
+  }, [playChunk, currentChapterIndex, currentChunkIndex]);
+
   // Setup Player event listeners
   useEffect(() => {
     const unsubTime = audioPlayer.onTimeUpdate(t => {
       setCurrentTime(t);
-      const d = audioPlayer.getDuration();
-      setDuration(d);
+      const actualD = audioPlayer.getDuration();
+      if (actualD > 0) {
+        setDuration(prev => Math.max(prev, actualD));
+      }
+      setBufferedTime(audioPlayer.getBufferedTime());
     });
 
     // Synchronized chunk boundary transitions: update UI highlight gaplessly
@@ -249,6 +326,16 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
         ...prev,
         [chunkIdx]: 'playing',
       }));
+
+      const chap = book?.chapters[chapIdx];
+      if (chap && chap.chunks[chunkIdx]) {
+        const est = estimateSpeechDuration(
+          chap.chunks[chunkIdx].charCount || chap.chunks[chunkIdx].text.length,
+          16
+        );
+        setEstimatedDuration(prev => Math.max(prev, est));
+        setDuration(prev => Math.max(prev, est));
+      }
     });
 
     const unsubEnded = audioPlayer.onEnded(() => {
@@ -256,12 +343,14 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       if (!isStreamingNetworkRef.current) {
         setIsPlaying(false);
         setCurrentTime(0);
+        setIsBuffering(false);
       }
     });
 
     const unsubError = audioPlayer.onError(err => {
       setIsLoading(false);
       setIsPlaying(false);
+      setIsBuffering(false);
       setErrorMessage(err.message);
     });
 
@@ -271,32 +360,36 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       unsubEnded();
       unsubError();
     };
-  }, [audioPlayer, saveProgress]);
+  }, [audioPlayer, saveProgress, book]);
 
   // Play / Pause toggle
   const togglePlayPause = useCallback(() => {
     if (isPlaying) {
+      isPausedByUserRef.current = true;
+      pausedTargetChunkRef.current = {
+        chapterIndex: currentChapterIndex,
+        chunkIndex: currentChunkIndex,
+      };
+      // Suspend AudioContext output cleanly; DO NOT abort active network stream
       audioPlayer.pause();
-      abortUseCase.execute(activeAbortControllerRef.current);
-      isStreamingNetworkRef.current = false;
       setIsPlaying(false);
     } else {
+      isPausedByUserRef.current = false;
+      pausedTargetChunkRef.current = null;
+      setErrorMessage(null);
+
       if (audioPlayer.getDuration() > 0 && currentTime < audioPlayer.getDuration()) {
         audioPlayer.play().then(() => {
           setIsPlaying(true);
-          // If buffered time is running low, resume next chunk stream
-          if (
-            !isStreamingNetworkRef.current &&
-            audioPlayer.getRemainingBufferedTime() < 2.0 &&
-            latestQueuedTargetRef.current
-          ) {
+          // If network stream is idle, resume chaining if next chunk exists
+          if (!isStreamingNetworkRef.current && latestQueuedTargetRef.current) {
             const next = getNextTarget(
               latestQueuedTargetRef.current.chapterIndex,
               latestQueuedTargetRef.current.chunkIndex
             );
             if (next) {
               latestQueuedTargetRef.current = next;
-              streamChunkInternal(next.chapterIndex, next.chunkIndex, true);
+              streamChunkRef.current(next.chapterIndex, next.chunkIndex, true);
             }
           }
         });
@@ -307,21 +400,22 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   }, [
     isPlaying,
     audioPlayer,
-    abortUseCase,
     currentTime,
     playChunk,
     currentChapterIndex,
     currentChunkIndex,
     getNextTarget,
-    streamChunkInternal,
   ]);
 
   // Jump to chapter
   const selectChapter = useCallback(
     (chapterIndex: number, startPlayImmediately = false) => {
+      isPausedByUserRef.current = false;
+      pausedTargetChunkRef.current = null;
       abortUseCase.execute(activeAbortControllerRef.current);
       activeAbortControllerRef.current = null;
       isStreamingNetworkRef.current = false;
+      setIsBuffering(false);
       latestQueuedTargetRef.current = null;
 
       audioPlayer.stop();
@@ -329,6 +423,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       setCurrentChunkIndex(0);
       saveProgress(chapterIndex, 0);
       setCurrentTime(0);
+      setBufferedTime(0);
       setChunkStatuses({});
       setIsPlaying(false);
 
@@ -369,13 +464,29 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     [currentTime, duration, seekTime]
   );
 
+  // Contextual chunk click handler: if active chunk, toggle pause/play; otherwise play target chunk
+  const handleChunkClick = useCallback(
+    (chapIdx: number, chunkIdx: number) => {
+      if (chapIdx === currentChapterIndex && chunkIdx === currentChunkIndex) {
+        togglePlayPause();
+      } else {
+        playChunk(chapIdx, chunkIdx);
+      }
+    },
+    [currentChapterIndex, currentChunkIndex, togglePlayPause, playChunk]
+  );
+
   return {
     currentChapterIndex,
     currentChunkIndex,
     isPlaying,
     isLoading,
+    isBuffering,
+    bufferingChunk,
     currentTime,
     duration,
+    estimatedDuration,
+    bufferedTime,
     autoNext,
     chunkStatuses,
     errorMessage,
@@ -388,5 +499,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     skipRelative,
     toggleAutoNext,
     playChunk,
+    handleChunkClick,
+    retryActiveStream,
   };
 }

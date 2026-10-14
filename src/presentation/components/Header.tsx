@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { BookOpen, Settings, HardDrive, Menu, X } from 'lucide-react';
+import { BookOpen, Settings, HardDrive, Menu } from 'lucide-react';
 import { EpubBook } from '@/domain';
 
 interface HeaderProps {
@@ -22,42 +22,50 @@ export function Header({
   cacheCount,
 }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 px-4 md:px-6 backdrop-blur-md">
-      {/* Left: Mobile Sidebar Toggle & Branding */}
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-30 flex h-16 w-full shrink-0 items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 px-4 md:px-6 backdrop-blur-md">
+      {/* Left: Sidebar Toggle & Book Breadcrumb */}
+      <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onToggleSidebar}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors md:hidden"
-          aria-label="Toggle Menu"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+          aria-label={isSidebarOpen ? 'Thu gọn thanh bên' : 'Mở thanh bên'}
+          title={isSidebarOpen ? 'Thu gọn thanh bên' : 'Mở thanh bên'}
         >
-          {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          <Menu className="h-5 w-5" />
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-amber-500 to-indigo-600 text-white shadow-sm shadow-indigo-500/20">
-            <BookOpen className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="font-semibold text-zinc-900 dark:text-zinc-100 text-base leading-tight">
+        {/* Branding when sidebar is closed/collapsed */}
+        {!isSidebarOpen && (
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-amber-500 to-indigo-600 text-white shadow-xs shrink-0">
+              <BookOpen className="h-4 w-4" />
+            </div>
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm hidden sm:inline">
               EPUB to Audio
-            </h1>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 hidden sm:block">
-              OpenAI Speech TTS Reader
-            </p>
+            </span>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Middle: Active Book Info */}
-      {book && (
-        <div className="hidden lg:flex items-center gap-2 text-center max-w-md truncate px-4">
-          <span className="font-medium text-sm text-zinc-800 dark:text-zinc-200 truncate">
-            {book.title}
-          </span>
-          <span className="text-xs text-zinc-400">|</span>
-          <span className="text-xs text-zinc-500 truncate">{book.author}</span>
-        </div>
-      )}
+        {/* Desktop Active Book breadcrumb */}
+        {book ? (
+          <div className="hidden md:flex items-center gap-2 truncate">
+            {!isSidebarOpen && <span className="text-zinc-300 dark:text-zinc-700">|</span>}
+            <span className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 truncate max-w-xs lg:max-w-md">
+              {book.title}
+            </span>
+            <span className="text-zinc-300 dark:text-zinc-700">/</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-[200px]">
+              {book.author}
+            </span>
+          </div>
+        ) : (
+          isSidebarOpen && (
+            <div className="hidden md:flex items-center gap-2 text-xs text-zinc-500">
+              <span>VieNeu TTS Streaming Reader</span>
+            </div>
+          )
+        )}
+      </div>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2">

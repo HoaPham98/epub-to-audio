@@ -53,7 +53,12 @@ export default function Home() {
     }
     return DEFAULT_SETTINGS;
   });
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCacheOpen, setIsCacheOpen] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
@@ -129,75 +134,82 @@ export default function Home() {
   });
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      {/* Top Header */}
-      <Header
+    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f5fa] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      {/* 1. Left: Full-Height Sidebar (from top to bottom of screen) */}
+      <Sidebar
         book={book}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenCache={() => {
-          refreshCacheStats();
-          setIsCacheOpen(true);
+        currentChapterIndex={audioPlayer.currentChapterIndex}
+        isPlaying={audioPlayer.isPlaying}
+        onSelectChapter={(index, playImmediately) => {
+          audioPlayer.selectChapter(index, playImmediately);
         }}
-        isSidebarOpen={isSidebarOpen}
-        onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
-        cacheCount={cacheStats.count}
+        onFileUpload={handleFileUpload}
+        onLoadSample={handleLoadSample}
+        isParsing={isParsing}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
-      {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Left Sidebar with ToC & Upload */}
-        <Sidebar
+      {/* 2. Right: Main Column (Navbar -> Content -> Footer) */}
+      <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden relative">
+        {/* Top: Navbar */}
+        <Header
           book={book}
-          currentChapterIndex={audioPlayer.currentChapterIndex}
-          isPlaying={audioPlayer.isPlaying}
-          onSelectChapter={(index, playImmediately) => {
-            audioPlayer.selectChapter(index, playImmediately);
-          }}
-          onFileUpload={handleFileUpload}
-          onLoadSample={handleLoadSample}
-          isParsing={isParsing}
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-        />
-
-        {/* Center Chapter Reader */}
-        <Reader
-          book={book}
-          currentChapterIndex={audioPlayer.currentChapterIndex}
-          currentChunkIndex={audioPlayer.currentChunkIndex}
-          isPlaying={audioPlayer.isPlaying}
-          isLoading={audioPlayer.isLoading}
-          chunkStatuses={audioPlayer.chunkStatuses}
-          errorMessage={audioPlayer.errorMessage}
-          onPlayChunk={(chIdx, ckIdx) => audioPlayer.playChunk(chIdx, ckIdx)}
           onOpenSettings={() => setIsSettingsOpen(true)}
-        />
-      </div>
-
-      {/* Sticky Bottom Audio Player Bar */}
-      {book && (
-        <AudioPlayerBar
-          book={book}
-          currentChapterIndex={audioPlayer.currentChapterIndex}
-          currentChunkIndex={audioPlayer.currentChunkIndex}
-          isPlaying={audioPlayer.isPlaying}
-          isLoading={audioPlayer.isLoading}
-          currentTime={audioPlayer.currentTime}
-          duration={audioPlayer.duration}
-          autoNext={audioPlayer.autoNext}
-          onTogglePlayPause={audioPlayer.togglePlayPause}
-          onPrevChapter={audioPlayer.prevChapter}
-          onNextChapter={audioPlayer.nextChapter}
-          onSeek={audioPlayer.seekTime}
-          onSkipRelative={audioPlayer.skipRelative}
-          onToggleAutoNext={audioPlayer.toggleAutoNext}
-          speed={settings.speed}
-          onChangeSpeed={speed => {
-            const updated = { ...settings, speed };
-            handleSaveSettings(updated);
+          onOpenCache={() => {
+            refreshCacheStats();
+            setIsCacheOpen(true);
           }}
+          isSidebarOpen={isSidebarOpen}
+          onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
+          cacheCount={cacheStats.count}
         />
-      )}
+
+        {/* Center: Scrollable Reader Content */}
+        <div className="flex-1 overflow-hidden relative flex flex-col min-h-0 bg-[#f4f5fa] dark:bg-zinc-950">
+          <Reader
+            book={book}
+            currentChapterIndex={audioPlayer.currentChapterIndex}
+            currentChunkIndex={audioPlayer.currentChunkIndex}
+            isPlaying={audioPlayer.isPlaying}
+            isLoading={audioPlayer.isLoading}
+            bufferingChunk={audioPlayer.bufferingChunk}
+            chunkStatuses={audioPlayer.chunkStatuses}
+            errorMessage={audioPlayer.errorMessage}
+            onPlayChunk={(chIdx, ckIdx) => audioPlayer.handleChunkClick(chIdx, ckIdx)}
+            onRetry={audioPlayer.retryActiveStream}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        </div>
+
+        {/* Bottom: Audio Player Bar (Footer) */}
+        {book && (
+          <AudioPlayerBar
+            book={book}
+            currentChapterIndex={audioPlayer.currentChapterIndex}
+            currentChunkIndex={audioPlayer.currentChunkIndex}
+            isPlaying={audioPlayer.isPlaying}
+            isLoading={audioPlayer.isLoading}
+            isBuffering={audioPlayer.isBuffering}
+            currentTime={audioPlayer.currentTime}
+            duration={audioPlayer.duration}
+            estimatedDuration={audioPlayer.estimatedDuration}
+            bufferedTime={audioPlayer.bufferedTime}
+            autoNext={audioPlayer.autoNext}
+            onTogglePlayPause={audioPlayer.togglePlayPause}
+            onPrevChapter={audioPlayer.prevChapter}
+            onNextChapter={audioPlayer.nextChapter}
+            onSeek={audioPlayer.seekTime}
+            onSkipRelative={audioPlayer.skipRelative}
+            onToggleAutoNext={audioPlayer.toggleAutoNext}
+            speed={settings.speed}
+            onChangeSpeed={speed => {
+              const updated = { ...settings, speed };
+              handleSaveSettings(updated);
+            }}
+          />
+        )}
+      </div>
 
       {/* Settings Modal */}
       <SettingsModal

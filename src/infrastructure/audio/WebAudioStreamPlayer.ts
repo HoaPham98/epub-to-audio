@@ -16,6 +16,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private audioContext: AudioContext | null = null;
   private activeSourceNodes: AudioBufferSourceNode[] = [];
   private isCurrentlyPlaying = false;
+  private playerState: 'idle' | 'playing' | 'paused' = 'idle';
   private playbackSpeed = 1.0;
   private nextStartTime = 0;
   private accumulatedLeadInSeconds = 0;
@@ -48,7 +49,8 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.audioContext = new AudioCtx();
     }
 
-    if (this.audioContext.state === 'suspended') {
+    // Strict suspension lock: if player is paused, do NOT resume audioContext
+    if (this.playerState !== 'paused' && this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
     }
   }
@@ -142,14 +144,27 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       }
     };
 
-    if (!this.isCurrentlyPlaying) {
+    if (
+      this.playerState !== 'paused' &&
+      !this.isCurrentlyPlaying &&
+      (!this.audioContext || this.audioContext.state !== 'suspended')
+    ) {
+      this.playerState = 'playing';
       this.isCurrentlyPlaying = true;
       this.startTicker();
     }
   }
 
   async play(): Promise<void> {
+    this.playerState = 'playing';
     await this.init();
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+      } catch (err) {
+        console.warn('Failed to resume AudioContext', err);
+      }
+    }
     if (this.queuedItems.length > 0 && !this.isLeadInBuffered) {
       this.isLeadInBuffered = true;
       this.flushQueuedBuffers();
@@ -158,13 +173,21 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.startTicker();
   }
 
-  pause(): void {
+  async pause(): Promise<void> {
+    this.playerState = 'paused';
     this.isCurrentlyPlaying = false;
     this.stopTicker();
-    this.stopAllNodes();
+    if (this.audioContext && this.audioContext.state === 'running') {
+      try {
+        await this.audioContext.suspend();
+      } catch (err) {
+        console.warn('Failed to suspend AudioContext', err);
+      }
+    }
   }
 
   stop(): void {
+    this.playerState = 'idle';
     this.isCurrentlyPlaying = false;
     this.stopTicker();
     this.clearQueue();
@@ -176,6 +199,9 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.chunkBoundaries = [];
     this.currentActiveChapterIndex = null;
     this.currentActiveChunkIndex = null;
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch(() => {});
+    }
     this.timeUpdateCallbacks.forEach(cb => cb(0));
   }
 
@@ -196,7 +222,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   getCurrentTime(): number {
-    if (!this.audioContext || !this.isCurrentlyPlaying || this.playbackStartTime === 0) {
+    if (!this.audioContext || this.playbackStartTime === 0) {
       return this.pausedAtTime;
     }
     const elapsed = (this.audioContext.currentTime - this.playbackStartTime) * this.playbackSpeed;
@@ -207,13 +233,25 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     return this.totalQueuedDuration;
   }
 
+  getBufferedTime(): number {
+    if (!this.audioContext || this.playbackStartTime === 0) {
+      return 0;
+    }
+    const buffered = (this.nextStartTime - this.playbackStartTime) * this.playbackSpeed;
+    return Math.max(0, Math.min(buffered, this.totalQueuedDuration));
+  }
+
   getRemainingBufferedTime(): number {
-    if (!this.audioContext || !this.isCurrentlyPlaying) return 0;
-    return Math.max(0, this.nextStartTime - this.audioContext.currentTime);
+    if (!this.audioContext) return 0;
+    return Math.max(0, (this.nextStartTime - this.audioContext.currentTime) * this.playbackSpeed);
   }
 
   isPlaying(): boolean {
     return this.isCurrentlyPlaying;
+  }
+
+  getPlayerState(): 'idle' | 'playing' | 'paused' {
+    return this.playerState;
   }
 
   clearQueue(): void {

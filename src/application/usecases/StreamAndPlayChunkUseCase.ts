@@ -22,6 +22,7 @@ export interface StreamAndPlayParams {
   append?: boolean;
   signal?: AbortSignal;
   ttsServiceOverride?: ITTSStreamingService;
+  onFirstData?: () => void;
   onNetworkDone?: () => void;
 }
 
@@ -37,7 +38,16 @@ export class StreamAndPlayChunkUseCase {
   ) {}
 
   async execute(params: StreamAndPlayParams): Promise<StreamAndPlayResult> {
-    const { text, settings, cacheInfo, append = false, signal, ttsServiceOverride, onNetworkDone } = params;
+    const {
+      text,
+      settings,
+      cacheInfo,
+      append = false,
+      signal,
+      ttsServiceOverride,
+      onFirstData,
+      onNetworkDone,
+    } = params;
 
     const meta: ChunkMeta | undefined = cacheInfo
       ? { chapterIndex: cacheInfo.chapterIndex, chunkIndex: cacheInfo.chunkIndex }
@@ -58,6 +68,7 @@ export class StreamAndPlayChunkUseCase {
       const cachedBlob = await this.audioCache.get(cacheKey);
       if (cachedBlob) {
         if (signal?.aborted) return { fromCache: true, blob: cachedBlob };
+        onFirstData?.();
         await this.audioPlayer.playCachedBlob(cachedBlob, settings.speed, append, meta);
         onNetworkDone?.();
         return { fromCache: true, blob: cachedBlob };
@@ -74,6 +85,7 @@ export class StreamAndPlayChunkUseCase {
     const ttsClient = ttsServiceOverride ?? TTSClientFactory.create(settings);
     const pcmBuffers: ArrayBuffer[] = [];
     const sampleRate = settings.sampleRate || 24000;
+    let hasFiredFirstData = false;
 
     try {
       for await (const chunk of ttsClient.streamSpeech(text, settings, signal)) {
@@ -86,6 +98,11 @@ export class StreamAndPlayChunkUseCase {
 
         this.audioPlayer.queuePcmChunk(chunk.pcmBuffer, chunk.sampleRate || sampleRate, meta);
         pcmBuffers.push(chunk.pcmBuffer);
+
+        if (!hasFiredFirstData) {
+          hasFiredFirstData = true;
+          onFirstData?.();
+        }
       }
 
       if (signal?.aborted) {

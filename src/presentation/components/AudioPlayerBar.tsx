@@ -23,8 +23,11 @@ interface AudioPlayerBarProps {
   currentChunkIndex: number;
   isPlaying: boolean;
   isLoading: boolean;
+  isBuffering?: boolean;
   currentTime: number;
   duration: number;
+  estimatedDuration?: number;
+  bufferedTime?: number;
   autoNext: boolean;
   onTogglePlayPause: () => void;
   onPrevChapter: () => void;
@@ -49,8 +52,11 @@ export function AudioPlayerBar({
   currentChunkIndex,
   isPlaying,
   isLoading,
+  isBuffering = false,
   currentTime,
   duration,
+  estimatedDuration = 0,
+  bufferedTime = 0,
   autoNext,
   onTogglePlayPause,
   onPrevChapter,
@@ -69,6 +75,7 @@ export function AudioPlayerBar({
 
   const currentChapter = book.chapters[currentChapterIndex];
   const totalChunks = currentChapter ? currentChapter.chunks.length : 0;
+  const effectiveDuration = Math.max(duration, estimatedDuration);
 
   const handleVolumeToggle = () => {
     setIsMuted(!isMuted);
@@ -90,9 +97,10 @@ export function AudioPlayerBar({
   };
 
   const speedOptions = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+  const bufferPercent = effectiveDuration > 0 ? Math.min(100, (bufferedTime / effectiveDuration) * 100) : 0;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md px-4 py-3 shadow-lg">
+    <footer className="relative w-full shrink-0 z-30 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md px-4 py-3 shadow-lg">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 md:gap-6">
         
         {/* Left: Info on Current Chapter & Chunk */}
@@ -112,6 +120,16 @@ export function AudioPlayerBar({
               <span className="text-[11px] text-zinc-500">
                 Chương {currentChapterIndex + 1}/{book.chapters.length}
               </span>
+              {bufferedTime > 0 && effectiveDuration > 0 && (
+                <span className="text-[10px] font-mono font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                  Đã đệm {bufferedTime.toFixed(1)}s{effectiveDuration > bufferedTime ? ` / ~${effectiveDuration.toFixed(1)}s` : ''}
+                </span>
+              )}
+              {isBuffering && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800 animate-pulse">
+                  {bufferedTime >= effectiveDuration ? 'Đang nạp sẵn đoạn kế...' : 'Đang nạp dữ liệu...'}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -141,11 +159,11 @@ export function AudioPlayerBar({
             {/* Main Play / Pause Button */}
             <button
               onClick={onTogglePlayPause}
-              disabled={isLoading}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600 text-white shadow-md hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-80"
+              disabled={isLoading && !isPlaying}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600 text-white shadow-md hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-80 cursor-pointer"
               title={isPlaying ? 'Tạm dừng' : 'Phát'}
             >
-              {isLoading ? (
+              {isLoading && !isPlaying ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : isPlaying ? (
                 <Pause className="h-5 w-5" />
@@ -174,20 +192,29 @@ export function AudioPlayerBar({
             </button>
           </div>
 
-          {/* Scrubber Bar & Timers */}
+          {/* Scrubber Bar & Timers with Buffered Range Layer */}
           <div className="flex w-full items-center gap-2 text-[11px] font-mono text-zinc-500">
             <span>{formatTime(currentTime)}</span>
-            <div className="relative flex-1 flex items-center">
+            <div className="relative flex-1 flex items-center h-4">
+              {/* Background Track & Buffered Overlay */}
+              <div className="absolute left-0 right-0 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg overflow-hidden pointer-events-none">
+                <div
+                  className="h-full bg-indigo-200/90 dark:bg-indigo-900/60 transition-all duration-300 rounded-lg"
+                  style={{ width: `${bufferPercent}%` }}
+                />
+              </div>
+
+              {/* Foreground Scrubber Range Input */}
               <input
                 type="range"
                 min={0}
-                max={duration || 100}
+                max={effectiveDuration || 100}
                 value={currentTime}
                 onChange={e => onSeek(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                className="relative z-10 w-full h-1.5 bg-transparent appearance-none cursor-pointer accent-indigo-600 focus:outline-none"
               />
             </div>
-            <span>{formatTime(duration)}</span>
+            <span>{formatTime(effectiveDuration)}</span>
           </div>
         </div>
 
@@ -276,6 +303,6 @@ export function AudioPlayerBar({
         </div>
 
       </div>
-    </div>
+    </footer>
   );
 }

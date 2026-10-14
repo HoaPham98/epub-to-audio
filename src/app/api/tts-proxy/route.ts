@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
+      signal: req.signal,
     });
 
     if (!upstreamResponse.ok) {
@@ -114,6 +115,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: unknown) {
+    if (req.signal?.aborted) {
+      return new Response(null, { status: 499 });
+    }
     const message = err instanceof Error ? err.message : 'Lỗi không xác định khi proxy TTS API';
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Volume2, Play, Minus, Plus, BookOpen, AlertCircle } from 'lucide-react';
+import { Play, Pause, Loader2, Minus, Plus, BookOpen, AlertCircle, RotateCw } from 'lucide-react';
 import { EpubBook, ChunkStatus } from '@/domain';
 
 interface ReaderProps {
@@ -10,9 +10,11 @@ interface ReaderProps {
   currentChunkIndex: number;
   isPlaying: boolean;
   isLoading: boolean;
+  bufferingChunk?: { chapterIndex: number; chunkIndex: number } | null;
   chunkStatuses: Record<number, ChunkStatus>;
   errorMessage: string | null;
   onPlayChunk: (chapterIndex: number, chunkIndex: number) => void;
+  onRetry?: () => void;
   onOpenSettings: () => void;
 }
 
@@ -22,20 +24,22 @@ export function Reader({
   currentChunkIndex,
   isPlaying,
   isLoading,
+  bufferingChunk = null,
   chunkStatuses,
   errorMessage,
   onPlayChunk,
+  onRetry,
   onOpenSettings,
 }: ReaderProps) {
   const [fontSize, setFontSize] = useState<number>(16);
   const activeChunkRef = useRef<HTMLDivElement | null>(null);
 
-  // Smooth auto-scroll to the currently reading chunk
+  // Smooth auto-scroll the currently reading chunk to the center of the viewport
   useEffect(() => {
-    if (activeChunkRef.current && isPlaying) {
+    if (activeChunkRef.current) {
       activeChunkRef.current.scrollIntoView({
         behavior: 'smooth',
-        block: 'nearest',
+        block: 'center',
       });
     }
   }, [currentChapterIndex, currentChunkIndex, isPlaying]);
@@ -59,29 +63,42 @@ export function Reader({
   const currentChapter = book.chapters[currentChapterIndex];
 
   return (
-    <main className="flex-1 overflow-y-auto px-4 md:px-12 py-8 bg-zinc-50/30 dark:bg-zinc-950 pb-28">
-      <div className="max-w-3xl mx-auto space-y-6">
-        {/* Error notification banner */}
+    <main className="flex-1 overflow-y-auto px-4 md:px-8 lg:px-12 py-6 bg-[#f4f5fa] dark:bg-zinc-950 pb-12 md:pb-16 min-h-0">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Error notification banner with Retry button */}
         {errorMessage && (
           <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-4 text-sm text-red-800 dark:text-red-300 flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="font-semibold">Đã xảy ra lỗi:</p>
               <p className="mt-0.5 text-xs text-red-700 dark:text-red-400">{errorMessage}</p>
-              {errorMessage.includes('API Key') && (
-                <button
-                  onClick={onOpenSettings}
-                  className="mt-2 inline-flex items-center text-xs font-semibold text-red-900 dark:text-red-200 underline hover:no-underline"
-                >
-                  Mở Cài đặt API ngay &rarr;
-                </button>
-              )}
+              <div className="mt-2.5 flex items-center gap-3">
+                {onRetry && (
+                  <button
+                    onClick={onRetry}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <RotateCw className="h-3.5 w-3.5" />
+                    Thử lại ngay
+                  </button>
+                )}
+                {errorMessage.includes('API Key') && (
+                  <button
+                    onClick={onOpenSettings}
+                    className="inline-flex items-center text-xs font-semibold text-red-900 dark:text-red-200 underline hover:no-underline"
+                  >
+                    Mở Cài đặt API &rarr;
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Chapter Header & Controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
+        {/* Reading Card Container */}
+        <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 md:p-8 shadow-xs">
+          {/* Chapter Header & Controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-zinc-200 dark:border-zinc-800">
           <div>
             <span className="text-xs font-mono font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
               Chương {currentChapterIndex + 1} / {book.chapters.length}
@@ -136,43 +153,74 @@ export function Reader({
                     </span>
 
                     <div className="flex items-center gap-2">
-                      {status === 'ready' && !isCurrent && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                          ✓ Đã nạp sẵn
-                        </span>
-                      )}
-                      {status === 'loading' && !isCurrent && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800 animate-pulse">
-                          Đang tải ngầm...
+                      {/* Status badges */}
+                      {isCurrent && !isPlaying && !isLoading && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700">
+                          Tạm dừng
                         </span>
                       )}
 
-                      <button
-                        onClick={() => onPlayChunk(currentChapterIndex, chunk.index)}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                          isCurrent && isPlaying
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : isCurrent && isLoading
-                            ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'
-                            : status === 'ready'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
-                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950'
-                        }`}
-                      >
-                        {isCurrent && isPlaying ? (
-                          <>
-                            <Volume2 className="h-3 w-3 animate-pulse" />
-                            <span>Đang đọc</span>
-                          </>
-                        ) : isCurrent && isLoading ? (
-                          <span>Đang nạp âm thanh...</span>
-                        ) : (
-                          <>
-                            <Play className="h-3 w-3" />
-                            <span>{status === 'ready' ? 'Phát ngay' : 'Nghe đoạn này'}</span>
-                          </>
+                      {/* Pre-buffering badge isolated to the buffering chunk */}
+                      {!isCurrent &&
+                        bufferingChunk?.chapterIndex === currentChapterIndex &&
+                        bufferingChunk?.chunkIndex === chunk.index && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800 animate-pulse">
+                            Đang nạp sẵn...
+                          </span>
                         )}
-                      </button>
+
+                      {!isCurrent &&
+                        !(
+                          bufferingChunk?.chapterIndex === currentChapterIndex &&
+                          bufferingChunk?.chunkIndex === chunk.index
+                        ) &&
+                        status === 'ready' && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                            ✓ Đã nạp sẵn
+                          </span>
+                        )}
+
+                      {/* Contextual Action Button */}
+                      {isCurrent && isPlaying ? (
+                        <button
+                          onClick={() => onPlayChunk(currentChapterIndex, chunk.index)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-all active:scale-95"
+                          title="Nhấn để tạm dừng"
+                        >
+                          <Pause className="h-3 w-3" />
+                          <span>Tạm dừng</span>
+                        </button>
+                      ) : isCurrent && isLoading ? (
+                        <button
+                          onClick={() => onPlayChunk(currentChapterIndex, chunk.index)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 transition-all cursor-wait"
+                          title="Đang kết nối tới server TTS..."
+                        >
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Đang kết nối...</span>
+                        </button>
+                      ) : isCurrent && !isPlaying ? (
+                        <button
+                          onClick={() => onPlayChunk(currentChapterIndex, chunk.index)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold border-2 border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 shadow-xs transition-all active:scale-95"
+                          title="Nhấn để tiếp tục nghe"
+                        >
+                          <Play className="h-3 w-3" />
+                          <span>Tiếp tục</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => onPlayChunk(currentChapterIndex, chunk.index)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                            status === 'ready'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                              : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950'
+                          }`}
+                        >
+                          <Play className="h-3 w-3" />
+                          <span>{status === 'ready' ? 'Phát ngay' : 'Nghe đoạn này'}</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -191,6 +239,7 @@ export function Reader({
             Chương này không có nội dung chữ để hiển thị.
           </div>
         )}
+        </div>
       </div>
     </main>
   );

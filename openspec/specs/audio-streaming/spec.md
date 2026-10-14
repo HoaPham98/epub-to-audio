@@ -19,7 +19,7 @@ The system SHALL ingest audio chunks streamed via Server-Sent Events (SSE) from 
 - **THEN** the system marks the streaming phase complete and triggers cache persistence
 
 ### Requirement: Pre-Buffered Web Audio Playback
-The system SHALL use Web Audio API (`AudioContext`) with a configurable 150–300ms lead-in buffer (300ms for CPU backends) to schedule PCM s16le audio playback smoothly without network jitter stalls.
+The system SHALL use Web Audio API (`AudioContext`) with a configurable 150–300ms lead-in buffer (300ms for CPU backends) to schedule PCM s16le audio playback smoothly without network jitter stalls, and support non-destructive suspend/resume state on pause with a strict audio output suspension lock.
 
 #### Scenario: Starting playback after lead-in buffer
 - **WHEN** incoming streamed PCM audio reaches the lead-in buffer threshold (150–300ms)
@@ -28,6 +28,16 @@ The system SHALL use Web Audio API (`AudioContext`) with a configurable 150–30
 #### Scenario: Graceful re-buffering on buffer underrun
 - **WHEN** the audio queue becomes empty before the next chunk buffer arrives
 - **THEN** the system pauses audio output cleanly without pops or crackles and resumes once 300ms lead-in buffer is refilled
+
+#### Scenario: Suspending and resuming audio on pause
+- **WHEN** the user pauses playback while audio is actively playing or streaming
+- **THEN** the system calls `AudioContext.suspend()` to freeze audio output while preserving scheduled nodes in memory
+- **AND** when the user unpauses, the system calls `AudioContext.resume()` to immediately continue playback from the exact paused millisecond without re-fetching
+
+#### Scenario: Background pre-buffering while paused
+- **WHEN** playback is paused while a chunk stream is in progress or pre-buffering chunk $N+1$
+- **THEN** the system continues receiving and queueing streamed audio deltas for the active chunk and subsequent chunk ($N+1$)
+- **AND** the system strictly maintains `AudioContext` in suspended state so that background buffers never produce unexpected audible sound
 
 ### Requirement: Strict Sequential Chaining for Single-Stream Endpoints
 The system SHALL support strict sequential chaining for CPU-only backends with `max_streams=1`, initiating the stream for chunk $N+1$ immediately after chunk $N$'s stream finishes on the wire, ensuring exactly $\le 1$ active network request at all times.
@@ -49,22 +59,34 @@ The system SHALL track timeline boundaries `{ chapterIndex, chunkIndex, startTim
 - **AND** the Reader component updates active highlight and scrolls into view without interrupting audio playback
 
 ### Requirement: Immediate Stream Cancellation on User Action
-The system SHALL immediately abort in-flight TTS streaming requests and halt active playback nodes when the user pauses, seeks, or jumps to another chunk or chapter.
+The system SHALL abort in-flight TTS streaming requests and halt active playback nodes when the user seeks or jumps to another chunk or chapter, while preserving in-flight streams on pause and toggling pause/resume when interacting with the active chunk.
 
 #### Scenario: User pauses during streaming
 - **WHEN** playback is paused while a TTS stream is active
-- **THEN** the system calls `abort()` on the active request's AbortController and stops audio output
+- **THEN** the system suspends audio output but keeps the network stream active to buffer ahead
+
+#### Scenario: User clicks active playing chunk in Reader
+- **WHEN** the user clicks the action button of the chunk currently being played
+- **THEN** the system pauses playback without aborting or restarting the active stream
+
+#### Scenario: User clicks active paused chunk in Reader
+- **WHEN** the user clicks the action button of the active chunk while paused
+- **THEN** the system resumes playback from the exact paused position
 
 #### Scenario: User skips to a different chunk
-- **WHEN** the user clicks on a different chunk while another chunk is streaming
-- **THEN** the previous stream is cancelled immediately to release the TTS server GPU/CPU slot and the new chunk stream begins
+- **WHEN** the user clicks on a different chunk or navigates to another chapter while streaming
+- **THEN** the previous stream is cancelled immediately via AbortSignal to release the TTS server slot and the new chunk stream begins
 
 ### Requirement: Streaming Proxy Passthrough
-The local API proxy (`/api/tts-proxy`) SHALL stream data chunks directly to the client via `ReadableStream` without buffering the entire response in server memory.
+The local API proxy (`/api/tts-proxy`) SHALL stream data chunks directly to the client via `ReadableStream` without buffering the entire response in server memory, and forward request abort signals upstream.
 
 #### Scenario: Proxying SSE stream without buffering
 - **WHEN** a client sends a streaming TTS request via `/api/tts-proxy`
 - **THEN** the proxy passes the upstream response body as a real-time stream with matching content type headers
+
+#### Scenario: Upstream abort signal forwarding
+- **WHEN** a client aborts the proxy HTTP connection
+- **THEN** the proxy immediately aborts the upstream fetch request to terminate server-side generation
 
 ### Requirement: Audio Cache Persistence
 The system SHALL collect received PCM audio deltas into a complete audio file in IndexedDB once streaming completes, allowing instantaneous replay without network requests.
@@ -72,3 +94,43 @@ The system SHALL collect received PCM audio deltas into a complete audio file in
 #### Scenario: Replaying a previously cached chunk
 - **WHEN** playback is requested for a chunk already present in the IndexedDB cache
 - **THEN** the system plays the cached audio immediately without contacting the TTS server
+
+### Requirement: Server Busy and HTTP 429 Resilience
+The system SHALL intercept HTTP 429 (Too Many Requests) and server busy responses, executing automatic exponential backoff retries without crashing or requiring application reload.
+
+#### Scenario: Automatic retry on HTTP 429 response
+- **WHEN** the TTS endpoint returns HTTP 429
+- **THEN** the client waits for the delay specified in `Retry-After` (or exponential backoff intervals of 1s, 2s, 4s) and retries the request up to 3 times
+- **AND** displays an informative status message to the user during the retry interval
+
+#### Scenario: Recovery after retries exhausted
+- **WHEN** all automatic retries fail
+- **THEN** the system displays a clear error message with a manual "Thử lại" action button that restarts the stream without requiring a full page refresh
+
+### Requirement: First-Packet Ready State and Contextual Chunk Playback Controls
+The system SHALL transition the playback state machine from connecting to playing as soon as the first playable audio packet arrives, immediately unlocking user pause controls, and SHALL render contextual action labels on chunk items.
+
+#### Scenario: Unlocking pause control upon first packet arrival
+- **WHEN** audio streaming initiates and the first audio delta (~300ms lead-in) is decoded and queued
+- **THEN** the system sets `isLoading = false` and `isPlaying = true`
+- **AND** enables the Pause button in the audio player bar immediately without waiting for stream completion
+
+#### Scenario: Contextual action labels on Reader chunks
+- **WHEN** a chunk is currently playing
+- **THEN** its action button displays `Tạm dừng`
+- **AND** when the active chunk is paused, its action button displays `Tiếp tục`
+- **AND** while a subsequent chunk is pre-buffering in background, it displays an isolated pre-buffering indicator `Đang nạp sẵn...` without marking the paused chunk as buffering
+
+### Requirement: Scrubber and Speech Duration Buffer Estimation
+The system SHALL estimate chunk duration based on character count ($~16$ characters per second) during initial stream download, dynamically rendering real-time buffer progress on the scrubber bar until stream completion.
+
+#### Scenario: Visual buffer bar progression during stream reception
+- **WHEN** audio packets arrive over the network while the chunk stream is in progress
+- **THEN** the scrubber bar displays a buffered range overlay that visibly advances proportional to received audio versus estimated total duration
+- **AND** displays an informative status badge `Đã đệm: X.Xs / ~Y.Ys`
+
+#### Scenario: Snapping to exact duration on stream completion
+- **WHEN** the server completes streaming the current chunk (`onNetworkDone`)
+- **THEN** the system updates total chunk duration to the exact decoded audio length
+- **AND** sets the current chunk buffered ratio to 100%
+
