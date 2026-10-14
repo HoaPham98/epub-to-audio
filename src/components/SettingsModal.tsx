@@ -1,9 +1,21 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Eye, EyeOff, Check, AlertCircle, Loader2, Volume2, ShieldCheck, Music } from 'lucide-react';
+import {
+  X,
+  Eye,
+  EyeOff,
+  Check,
+  AlertCircle,
+  Loader2,
+  Volume2,
+  ShieldCheck,
+  Music,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
 import { TTSSettings } from '@/types';
-import { testTTSConnection } from '@/lib/tts';
+import { testTTSConnection, fetchAvailableVoices, VoiceOption } from '@/lib/tts';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -21,7 +33,7 @@ const PRESET_ENDPOINTS = [
 
 const SUGGESTED_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'Puck', 'Aoede', 'Fenrir', 'Kore'];
 const FORMAT_OPTIONS = [
-  { value: 'wav', label: 'WAV (Khuyên dùng)' },
+  { value: 'wav', label: 'WAV' },
   { value: 'pcm', label: 'PCM' },
   { value: 'mp3', label: 'MP3' },
   { value: 'opus', label: 'Opus' },
@@ -38,6 +50,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Auto-fetch voices state
+  const [fetchedVoices, setFetchedVoices] = useState<VoiceOption[]>([]);
+  const [fetchingVoices, setFetchingVoices] = useState(false);
+  const [voicesFeedback, setVoicesFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   if (!isOpen) return null;
 
   const handlePresetSelect = (preset: typeof PRESET_ENDPOINTS[0]) => {
@@ -48,6 +65,42 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       voice: preset.voice,
       responseFormat: preset.format,
     }));
+  };
+
+  const handleFetchVoices = async () => {
+    if (!formData.endpoint) {
+      setVoicesFeedback({ type: 'error', message: 'Vui lòng nhập Endpoint URL trước.' });
+      return;
+    }
+    setFetchingVoices(true);
+    setVoicesFeedback(null);
+    try {
+      const voices = await fetchAvailableVoices(formData.endpoint, formData.apiKey, formData.useProxy);
+      if (voices.length === 0) {
+        setVoicesFeedback({
+          type: 'error',
+          message: 'Endpoint trả về 0 giọng đọc. Hãy kiểm tra lại endpoint hoặc API key.',
+        });
+      } else {
+        setFetchedVoices(voices);
+        setVoicesFeedback({
+          type: 'success',
+          message: `Đã tìm thấy ${voices.length} giọng đọc từ GET /v1/voices!`,
+        });
+        // If current voice not in list, auto-select the first one
+        const exists = voices.some(v => v.id.toLowerCase() === formData.voice.toLowerCase());
+        if (!exists && voices.length > 0) {
+          setFormData(prev => ({ ...prev, voice: voices[0].id }));
+        }
+      }
+    } catch (err: unknown) {
+      setVoicesFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Không thể tải danh sách voices từ endpoint.',
+      });
+    } finally {
+      setFetchingVoices(false);
+    }
   };
 
   const handleTest = async () => {
@@ -83,7 +136,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
               Cài đặt OpenAI TTS Endpoint
             </h2>
             <p className="text-xs text-zinc-500">
-              Cấu hình endpoint tương thích API /v1/audio/speech
+              Cấu hình endpoint tương thích API /v1/audio/speech & /v1/voices
             </p>
           </div>
           <button
@@ -130,7 +183,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
               className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:border-indigo-500 focus:outline-hidden"
             />
             <p className="text-[11px] text-zinc-400 mt-1">
-              Hỗ trợ tự động gọi đường dẫn con <code className="text-indigo-500">/audio/speech</code>.
+              Hỗ trợ tự động gọi <code className="text-indigo-500">/audio/speech</code> và <code className="text-indigo-500">/voices</code>.
             </p>
           </div>
 
@@ -175,37 +228,75 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             />
           </div>
 
-          {/* Voice Input (Direct Free-form Input + Suggestion Badges) */}
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+          {/* Voice Input with Auto-Fetch from GET /v1/voices */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/70 dark:bg-zinc-900/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                 Giọng đọc (Voice)
               </label>
-              <span className="text-[11px] text-zinc-400">Nhập tên bất kỳ</span>
+
+              {/* Auto-Fetch Button */}
+              <button
+                type="button"
+                disabled={fetchingVoices}
+                onClick={handleFetchVoices}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-medium border border-indigo-200 dark:border-indigo-800 transition-colors disabled:opacity-50"
+                title="Tự động gọi GET /v1/voices từ endpoint để lấy danh sách giọng đọc"
+              >
+                <RefreshCw className={`h-3 w-3 ${fetchingVoices ? 'animate-spin' : ''}`} />
+                <span>{fetchingVoices ? 'Đang lấy giọng...' : 'Tự động lấy giọng (/v1/voices)'}</span>
+              </button>
             </div>
+
+            {/* Direct Input Field */}
             <input
               type="text"
               value={formData.voice}
               onChange={e => setFormData({ ...formData, voice: e.target.value })}
               placeholder="VD: alloy, nova, Puck, Aoede, ..."
-              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2 text-xs font-medium text-zinc-900 dark:text-zinc-100 focus:border-indigo-500 focus:outline-hidden"
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-900 dark:text-zinc-100 focus:border-indigo-500 focus:outline-hidden"
             />
-            {/* Quick Suggestion Pills */}
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {SUGGESTED_VOICES.map(voiceName => (
-                <button
-                  type="button"
-                  key={voiceName}
-                  onClick={() => setFormData({ ...formData, voice: voiceName })}
-                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                    formData.voice.toLowerCase() === voiceName.toLowerCase()
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                  }`}
-                >
-                  {voiceName}
-                </button>
-              ))}
+
+            {/* Voices Feedback Banner */}
+            {voicesFeedback && (
+              <p
+                className={`text-[11px] font-medium ${
+                  voicesFeedback.type === 'success'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}
+              >
+                {voicesFeedback.message}
+              </p>
+            )}
+
+            {/* Fetched Voices from Server or Fallback Suggestions */}
+            <div>
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1">
+                {fetchedVoices.length > 0
+                  ? `Giọng đọc từ server (${fetchedVoices.length} giọng):`
+                  : 'Gợi ý giọng đọc phổ biến:'}
+              </p>
+              <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-1 bg-white/50 dark:bg-zinc-800/40 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                {(fetchedVoices.length > 0 ? fetchedVoices : SUGGESTED_VOICES.map((v): VoiceOption => ({ id: v, name: v }))).map(v => {
+                  const isSelected = formData.voice.toLowerCase() === v.id.toLowerCase();
+                  return (
+                    <button
+                      type="button"
+                      key={v.id}
+                      onClick={() => setFormData({ ...formData, voice: v.id })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-2xs font-semibold'
+                          : 'bg-zinc-100 dark:bg-zinc-700/60 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                      }`}
+                    >
+                      {v.name || v.id}
+                      {v.language && <span className="opacity-70 text-[9px] ml-1">({v.language})</span>}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -232,12 +323,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                       : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100'
                   }`}
                 >
-                  {fmt.value.toUpperCase()}
+                  {fmt.label}
                 </button>
               ))}
             </div>
             <p className="text-[11px] text-zinc-400 mt-1">
-              Nếu endpoint báo lỗi không hỗ trợ mp3, hãy chọn <strong className="text-zinc-600 dark:text-zinc-300">WAV</strong> hoặc <strong className="text-zinc-600 dark:text-zinc-300">PCM</strong>.
+              Nếu server không hỗ trợ MP3, hãy chọn <strong className="text-zinc-600 dark:text-zinc-300">WAV</strong> hoặc <strong className="text-zinc-600 dark:text-zinc-300">PCM</strong>.
             </p>
           </div>
 

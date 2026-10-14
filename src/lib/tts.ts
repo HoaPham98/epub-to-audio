@@ -201,3 +201,111 @@ export async function testTTSConnection(settings: TTSSettings): Promise<{ succes
     };
   }
 }
+
+export interface VoiceOption {
+  id: string;
+  name: string;
+  language?: string;
+}
+
+/**
+ * Fetches the list of available voices from GET /v1/voices.
+ */
+export async function fetchAvailableVoices(
+  endpoint: string,
+  apiKey: string,
+  useProxy = false
+): Promise<VoiceOption[]> {
+  let cleanEndpoint = (endpoint || 'https://api.openai.com/v1').trim().replace(/\/+$/, '');
+  if (cleanEndpoint.endsWith('/audio/speech')) {
+    cleanEndpoint = cleanEndpoint.replace(/\/audio\/speech$/, '');
+  }
+  const targetUrl = cleanEndpoint.endsWith('/voices')
+    ? cleanEndpoint
+    : `${cleanEndpoint}/voices`;
+
+  let rawData: unknown = null;
+
+  // 1. Try direct fetch first if not forced proxy
+  if (!useProxy) {
+    try {
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (apiKey && apiKey.trim()) {
+        headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+      }
+      const res = await fetch(targetUrl, { method: 'GET', headers });
+      if (res.ok) {
+        rawData = await res.json();
+      }
+    } catch {
+      // Direct fetch failed (likely CORS), will try proxy
+    }
+  }
+
+  // 2. Fall back to /api/voices-proxy
+  if (!rawData) {
+    const proxyRes = await fetch('/api/voices-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: cleanEndpoint, apiKey }),
+    });
+
+    if (!proxyRes.ok) {
+      let errMsg = `Không thể tải danh sách voices (${proxyRes.status})`;
+      try {
+        const errJson = await proxyRes.json();
+        if (errJson?.error) errMsg = errJson.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(errMsg);
+    }
+    rawData = await proxyRes.json();
+  }
+
+  return extractVoicesList(rawData);
+}
+
+function extractVoicesList(data: unknown): VoiceOption[] {
+  if (!data) return [];
+
+  let list: unknown[] = [];
+  if (Array.isArray(data)) {
+    list = data;
+  } else if (typeof data === 'object') {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.voices)) {
+      list = obj.voices;
+    } else if (Array.isArray(obj.data)) {
+      list = obj.data;
+    } else if (Array.isArray(obj.items)) {
+      list = obj.items;
+    } else {
+      const keys = Object.keys(obj);
+      if (keys.length > 0 && typeof obj[keys[0]] === 'object') {
+        return keys.map(k => {
+          const item = obj[k] as Record<string, unknown>;
+          return { id: k, name: String(item?.name || k) };
+        });
+      }
+    }
+  }
+
+  const voices: VoiceOption[] = [];
+  for (const item of list) {
+    if (typeof item === 'string') {
+      voices.push({ id: item, name: item });
+    } else if (item && typeof item === 'object') {
+      const v = item as Record<string, unknown>;
+      const id = String(v.id || v.voice_id || v.name || v.voice || '');
+      const name = String(v.name || v.label || v.id || id);
+      const language = v.language || v.lang ? String(v.language || v.lang) : undefined;
+      if (id) {
+        voices.push({ id, name, language });
+      }
+    }
+  }
+
+  return voices;
+}
+
