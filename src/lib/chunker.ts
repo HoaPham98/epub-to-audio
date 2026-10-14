@@ -1,10 +1,11 @@
 import { TextChunk } from '@/types';
 
-const MAX_CHUNK_LENGTH = 3500; // Safe threshold well below OpenAI's 4096 limit
+const TARGET_MIN_LENGTH = 280;
+const MAX_CHUNK_LENGTH = 400; // ~300 to 400 characters per chunk
 
 /**
- * Splits raw text of a chapter into chunks suitable for OpenAI TTS API.
- * Preserves paragraph and sentence boundaries wherever possible.
+ * Splits raw text of a chapter into small chunks (~300 - 400 characters),
+ * preserving sentence and clause boundaries.
  */
 export function chunkChapterText(chapterIndex: number, text: string): TextChunk[] {
   const cleanText = text
@@ -16,81 +17,78 @@ export function chunkChapterText(chapterIndex: number, text: string): TextChunk[
     return [];
   }
 
-  const rawParagraphs = cleanText.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-  const normalizedParagraphs: string[] = [];
+  // 1. Break text into logical sentence units
+  const rawSentences = cleanText.match(/[^.!?\n]+[.!?]+["']?|[^.!?\n]+(?:\n+|$)/g) || [cleanText];
+  const atomicUnits: string[] = [];
 
-  // Break overly long paragraphs into sentences
-  for (const paragraph of rawParagraphs) {
-    if (paragraph.length <= MAX_CHUNK_LENGTH) {
-      normalizedParagraphs.push(paragraph);
+  for (const sentence of rawSentences) {
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+
+    // If a sentence is within our limit, keep as is
+    if (trimmed.length <= MAX_CHUNK_LENGTH) {
+      atomicUnits.push(trimmed);
     } else {
-      // Split by sentence endings (. ! ? ...)
-      const sentences = paragraph.match(/[^.!?]+[.!?]+["']?|[^.!?]+$/g) || [paragraph];
-      let currentSentenceBlock = '';
+      // Split overly long sentence by clauses (, ; : -)
+      const clauses = trimmed.match(/[^,;:—]+[,;:—]+|[^,;:—]+$/g) || [trimmed];
+      for (const clause of clauses) {
+        const clauseTrimmed = clause.trim();
+        if (!clauseTrimmed) continue;
 
-      for (const sentence of sentences) {
-        const trimmed = sentence.trim();
-        if (!trimmed) continue;
-
-        if (trimmed.length > MAX_CHUNK_LENGTH) {
-          // If a single sentence exceeds MAX_CHUNK_LENGTH, break by words
-          if (currentSentenceBlock) {
-            normalizedParagraphs.push(currentSentenceBlock);
-            currentSentenceBlock = '';
-          }
-          const words = trimmed.split(' ');
-          let wordBlock = '';
+        if (clauseTrimmed.length <= MAX_CHUNK_LENGTH) {
+          atomicUnits.push(clauseTrimmed);
+        } else {
+          // If a single clause still exceeds, split by words
+          const words = clauseTrimmed.split(' ');
+          let wordAcc = '';
           for (const word of words) {
-            if ((wordBlock + ' ' + word).trim().length > MAX_CHUNK_LENGTH) {
-              if (wordBlock) normalizedParagraphs.push(wordBlock.trim());
-              wordBlock = word;
+            if ((wordAcc + ' ' + word).trim().length > MAX_CHUNK_LENGTH) {
+              if (wordAcc) atomicUnits.push(wordAcc.trim());
+              wordAcc = word;
             } else {
-              wordBlock = wordBlock ? `${wordBlock} ${word}` : word;
+              wordAcc = wordAcc ? `${wordAcc} ${word}` : word;
             }
           }
-          if (wordBlock) normalizedParagraphs.push(wordBlock.trim());
-        } else if ((currentSentenceBlock + ' ' + trimmed).trim().length > MAX_CHUNK_LENGTH) {
-          normalizedParagraphs.push(currentSentenceBlock.trim());
-          currentSentenceBlock = trimmed;
-        } else {
-          currentSentenceBlock = currentSentenceBlock ? `${currentSentenceBlock} ${trimmed}` : trimmed;
+          if (wordAcc.trim()) {
+            atomicUnits.push(wordAcc.trim());
+          }
         }
-      }
-      if (currentSentenceBlock) {
-        normalizedParagraphs.push(currentSentenceBlock.trim());
       }
     }
   }
 
-  // Now bundle paragraphs into chunks up to MAX_CHUNK_LENGTH
+  // 2. Assemble atomic units into chunks targeting 300 - 400 characters
   const chunks: TextChunk[] = [];
-  let currentChunkText = '';
+  let currentChunk = '';
   let chunkIdx = 0;
 
-  for (const para of normalizedParagraphs) {
-    const candidate = currentChunkText ? `${currentChunkText}\n\n${para}` : para;
+  for (const unit of atomicUnits) {
+    const separator = currentChunk ? ' ' : '';
+    const candidate = currentChunk + separator + unit;
+
     if (candidate.length <= MAX_CHUNK_LENGTH) {
-      currentChunkText = candidate;
+      currentChunk = candidate;
     } else {
-      if (currentChunkText) {
+      // If adding this unit exceeds 400 characters, push current chunk
+      if (currentChunk.trim()) {
         chunks.push({
           id: `ch-${chapterIndex}-ck-${chunkIdx}`,
           index: chunkIdx,
-          text: currentChunkText.trim(),
-          charCount: currentChunkText.trim().length,
+          text: currentChunk.trim(),
+          charCount: currentChunk.trim().length,
         });
         chunkIdx++;
       }
-      currentChunkText = para;
+      currentChunk = unit;
     }
   }
 
-  if (currentChunkText.trim()) {
+  if (currentChunk.trim()) {
     chunks.push({
       id: `ch-${chapterIndex}-ck-${chunkIdx}`,
       index: chunkIdx,
-      text: currentChunkText.trim(),
-      charCount: currentChunkText.trim().length,
+      text: currentChunk.trim(),
+      charCount: currentChunk.trim().length,
     });
   }
 

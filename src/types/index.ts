@@ -35,6 +35,8 @@ export interface TTSSettings {
   responseFormat: string;
   speed: number;
   useProxy: boolean;
+  enablePrefetch?: boolean;
+  requestDelayMs?: number;
 }
 
 export interface AudioCacheItem {

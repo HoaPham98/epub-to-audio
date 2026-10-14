@@ -374,6 +374,27 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             />
           </div>
 
+          {/* Prefetch Toggle */}
+          <div className="flex items-center justify-between rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-900/50">
+            <div className="flex items-start gap-2.5">
+              <Sparkles className="h-4 w-4 text-indigo-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                  Tự động tải trước đoạn kế tiếp (Background Prefetch)
+                </p>
+                <p className="text-[11px] text-zinc-400">
+                  Tải ngầm đoạn tiếp theo khi đang nghe. Hãy tắt nếu server cục bộ của bạn báo lỗi 429 Too Many Requests.
+                </p>
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={formData.enablePrefetch ?? true}
+              onChange={e => setFormData({ ...formData, enablePrefetch: e.target.checked })}
+              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+          </div>
+
           {/* Test Status Result */}
           {testResult && (
             <div

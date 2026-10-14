@@ -9,6 +9,57 @@ export class TTSError extends Error {
 }
 
 /**
+ * Sequential execution queue to prevent concurrent requests to the TTS endpoint.
+ * Protects against 429 Too Many Requests on local/rate-limited servers.
+ */
+class SequentialRequestQueue {
+  private queue: Promise<void> = Promise.resolve();
+
+  enqueue<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue = this.queue.then(async () => {
+        try {
+          const result = await task();
+          // 400ms cooldown between sequential requests
+          await new Promise(r => setTimeout(r, 400));
+          resolve(result);
+        } catch (err) {
+          await new Promise(r => setTimeout(r, 400));
+          reject(err);
+        }
+      });
+    });
+  }
+}
+
+const globalTTSQueue = new SequentialRequestQueue();
+
+/**
+ * Executes a fetch function with automatic retries on 429 Too Many Requests.
+ */
+async function executeWithRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      attempt++;
+      const is429 =
+        (err instanceof TTSError && err.status === 429) ||
+        (err instanceof Error && err.message.includes('429'));
+
+      if (is429 && attempt <= maxRetries) {
+        const waitMs = attempt * 1500;
+        console.warn(`[TTS 429] Server báo quá nhiều yêu cầu. Đang tạm dừng ${waitMs}ms và thử lại lần ${attempt}/${maxRetries}...`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * Converts raw PCM audio buffer to a playable WAV Blob with a standard 44-byte RIFF header.
  */
 function pcmToWavBlob(pcmBuffer: ArrayBuffer, sampleRate = 24000, numChannels = 1, bitDepth = 16): Blob {
@@ -49,6 +100,7 @@ function pcmToWavBlob(pcmBuffer: ArrayBuffer, sampleRate = 24000, numChannels = 
 
 /**
  * Generates speech for a text string, using cache if available.
+ * Requests are strictly queued sequentially and automatically retried on 429.
  */
 export async function fetchTTSAudio(
   text: string,
@@ -93,93 +145,97 @@ export async function fetchTTSAudio(
     response_format: format,
   };
 
-  let audioBlob: Blob | null = null;
+  // 3. Queue network request to avoid overloading the TTS endpoint
+  return globalTTSQueue.enqueue(() =>
+    executeWithRetry(async () => {
+      let audioBlob: Blob | null = null;
 
-  // 3. Attempt direct fetch if proxy is not forced
-  if (!settings.useProxy) {
-    try {
-      const response = await fetch(directUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${settings.apiKey.trim()}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        let errMsg = `Lỗi ${response.status}: ${response.statusText}`;
+      // Attempt direct fetch if proxy is not forced
+      if (!settings.useProxy) {
         try {
-          const errData = await response.json();
-          if (errData?.error?.message) {
-            errMsg = errData.error.message;
-          } else if (errData?.message) {
-            errMsg = errData.message;
+          const response = await fetch(directUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${settings.apiKey.trim()}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!response.ok) {
+            let errMsg = `Lỗi ${response.status}: ${response.statusText}`;
+            try {
+              const errData = await response.json();
+              if (errData?.error?.message) {
+                errMsg = errData.error.message;
+              } else if (errData?.message) {
+                errMsg = errData.message;
+              }
+            } catch {
+              // ignore
+            }
+            throw new TTSError(errMsg, response.status);
           }
-        } catch {
-          // ignore
+
+          if (format.toLowerCase() === 'pcm') {
+            const pcmBuffer = await response.arrayBuffer();
+            audioBlob = pcmToWavBlob(pcmBuffer);
+          } else {
+            audioBlob = await response.blob();
+          }
+        } catch (err: unknown) {
+          if (err instanceof TTSError) {
+            throw err;
+          }
+          console.warn('Direct TTS request failed, attempting fallback to /api/tts-proxy...', err);
         }
-        throw new TTSError(errMsg, response.status);
       }
 
-      if (format.toLowerCase() === 'pcm') {
-        const pcmBuffer = await response.arrayBuffer();
-        audioBlob = pcmToWavBlob(pcmBuffer);
-      } else {
-        audioBlob = await response.blob();
+      // If direct fetch was skipped or failed due to CORS/network, use proxy
+      if (!audioBlob) {
+        const proxyResponse = await fetch('/api/tts-proxy', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            endpoint: settings.endpoint,
+            apiKey: settings.apiKey,
+            model: settings.model,
+            input: text,
+            voice: settings.voice,
+            speed: settings.speed,
+            response_format: format,
+          }),
+        });
+
+        if (!proxyResponse.ok) {
+          let errMsg = `Lỗi Proxy (${proxyResponse.status})`;
+          try {
+            const errJson = await proxyResponse.json();
+            if (errJson?.error) errMsg = errJson.error;
+          } catch {
+            // ignore
+          }
+          throw new TTSError(errMsg, proxyResponse.status);
+        }
+
+        if (format.toLowerCase() === 'pcm') {
+          const pcmBuffer = await proxyResponse.arrayBuffer();
+          audioBlob = pcmToWavBlob(pcmBuffer);
+        } else {
+          audioBlob = await proxyResponse.blob();
+        }
       }
-    } catch (err: unknown) {
-      // If direct fetch fails with Network/CORS error, try falling back to our Next.js API proxy
-      if (err instanceof TTSError) {
-        throw err;
+
+      // 4. Store in IndexedDB cache for instant future reuse
+      if (cacheKey && audioBlob) {
+        await setCachedAudio(cacheKey, audioBlob);
       }
-      console.warn('Direct TTS request failed, attempting fallback to /api/tts-proxy...', err);
-    }
-  }
 
-  // 4. If direct fetch was skipped or failed due to CORS/network, use proxy
-  if (!audioBlob) {
-    const proxyResponse = await fetch('/api/tts-proxy', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        endpoint: settings.endpoint,
-        apiKey: settings.apiKey,
-        model: settings.model,
-        input: text,
-        voice: settings.voice,
-        speed: settings.speed,
-        response_format: format,
-      }),
-    });
-
-    if (!proxyResponse.ok) {
-      let errMsg = `Lỗi Proxy (${proxyResponse.status})`;
-      try {
-        const errJson = await proxyResponse.json();
-        if (errJson?.error) errMsg = errJson.error;
-      } catch {
-        // ignore
-      }
-      throw new TTSError(errMsg, proxyResponse.status);
-    }
-
-    if (format.toLowerCase() === 'pcm') {
-      const pcmBuffer = await proxyResponse.arrayBuffer();
-      audioBlob = pcmToWavBlob(pcmBuffer);
-    } else {
-      audioBlob = await proxyResponse.blob();
-    }
-  }
-
-  // 5. Store in IndexedDB cache for instant future reuse
-  if (cacheKey && audioBlob) {
-    await setCachedAudio(cacheKey, audioBlob);
-  }
-
-  return audioBlob;
+      return audioBlob;
+    })
+  );
 }
 
 /**
@@ -308,4 +364,3 @@ function extractVoicesList(data: unknown): VoiceOption[] {
 
   return voices;
 }
-

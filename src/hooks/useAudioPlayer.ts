@@ -24,6 +24,7 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
   const prefetchingChunksRef = useRef<Set<string>>(new Set());
+  const prefetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize Audio element on mount
   useEffect(() => {
@@ -165,12 +166,21 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
           [chunkIdx]: 'playing',
         }));
 
-        // Trigger prefetch for next chunk (chunkIdx + 1)
-        if (chunkIdx + 1 < chapter.chunks.length) {
-          prefetchChunk(chapIdx, chunkIdx + 1);
-        } else if (autoNext && chapIdx + 1 < book.chapters.length) {
-          // If at the end of chapter and autoNext is true, prefetch chunk 0 of next chapter!
-          prefetchChunk(chapIdx + 1, 0);
+        // Clear any pending prefetch
+        if (prefetchTimeoutRef.current) {
+          clearTimeout(prefetchTimeoutRef.current);
+          prefetchTimeoutRef.current = null;
+        }
+
+        // Trigger delayed prefetch for next chunk (wait 2500ms so current chunk is well underway)
+        if (settings.enablePrefetch !== false) {
+          prefetchTimeoutRef.current = setTimeout(() => {
+            if (chunkIdx + 1 < chapter.chunks.length) {
+              prefetchChunk(chapIdx, chunkIdx + 1);
+            } else if (autoNext && chapIdx + 1 < book.chapters.length) {
+              prefetchChunk(chapIdx + 1, 0);
+            }
+          }, 2500);
         }
       } catch (err: unknown) {
         console.error('Play chunk error:', err);
@@ -224,6 +234,10 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
     if (!audioRef.current) return;
 
     if (isPlaying) {
+      if (prefetchTimeoutRef.current) {
+        clearTimeout(prefetchTimeoutRef.current);
+        prefetchTimeoutRef.current = null;
+      }
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
@@ -238,6 +252,10 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
   // Jump to chapter
   const selectChapter = useCallback(
     (chapterIndex: number, startPlayImmediately = false) => {
+      if (prefetchTimeoutRef.current) {
+        clearTimeout(prefetchTimeoutRef.current);
+        prefetchTimeoutRef.current = null;
+      }
       setCurrentChapterIndex(chapterIndex);
       setCurrentChunkIndex(0);
       setCurrentTime(0);

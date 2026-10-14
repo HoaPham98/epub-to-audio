@@ -11,6 +11,7 @@ import { useAudioPlayer } from '@/hooks/useAudioPlayer';
 import { EpubBook, TTSSettings } from '@/types';
 import { parseEpubFile } from '@/lib/epubParser';
 import { getCacheStats, getSavedBook, saveCurrentBook } from '@/lib/db';
+import { chunkChapterText } from '@/lib/chunker';
 
 const DEFAULT_SETTINGS: TTSSettings = {
   endpoint: 'https://api.openai.com/v1',
@@ -47,10 +48,22 @@ export default function Home() {
       console.warn('Failed to parse saved settings', e);
     }
 
-    // Load last uploaded book
+    // Load last uploaded book & auto-rechunk to 300-400 characters
     getSavedBook().then(saved => {
       if (saved) {
-        setBook(saved);
+        const hasLargeChunks = saved.chapters.some(ch => ch.chunks.some(ck => ck.charCount > 450));
+        if (hasLargeChunks) {
+          const updatedChapters = saved.chapters.map(ch => ({
+            ...ch,
+            chunks: chunkChapterText(ch.index, ch.rawText),
+          }));
+          const totalChunks = updatedChapters.reduce((acc, ch) => acc + ch.chunks.length, 0);
+          const updatedBook = { ...saved, chapters: updatedChapters, totalChunks };
+          setBook(updatedBook);
+          saveCurrentBook(updatedBook);
+        } else {
+          setBook(saved);
+        }
       }
     });
 
