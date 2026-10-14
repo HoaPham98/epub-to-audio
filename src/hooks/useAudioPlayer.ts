@@ -82,6 +82,51 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
     });
   }, []);
 
+  // Save reading progress (current chapter & chunk) to localStorage
+  const saveProgress = useCallback(
+    (chapIdx: number, chunkIdx: number) => {
+      if (!book) return;
+      try {
+        localStorage.setItem(
+          `epub_progress_${book.id}`,
+          JSON.stringify({ chapterIndex: chapIdx, chunkIndex: chunkIdx, timestamp: Date.now() })
+        );
+      } catch (e) {
+        console.warn('Failed to save reading progress', e);
+      }
+    },
+    [book]
+  );
+
+  // Restore reading progress when book loads or changes
+  useEffect(() => {
+    if (!book) return;
+    try {
+      const saved = localStorage.getItem(`epub_progress_${book.id}`);
+      if (saved) {
+        const { chapterIndex, chunkIndex } = JSON.parse(saved);
+        if (
+          typeof chapterIndex === 'number' &&
+          chapterIndex >= 0 &&
+          chapterIndex < book.chapters.length
+        ) {
+          setCurrentChapterIndex(chapterIndex);
+          const chap = book.chapters[chapterIndex];
+          if (
+            typeof chunkIndex === 'number' &&
+            chap &&
+            chunkIndex >= 0 &&
+            chunkIndex < chap.chunks.length
+          ) {
+            setCurrentChunkIndex(chunkIndex);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore reading progress', e);
+    }
+  }, [book]);
+
   // Helper to get consistent chunk key
   const getChunkKey = useCallback(
     (chapIdx: number, chunkIdx: number) => {
@@ -139,11 +184,17 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
           }));
         }
 
-        // Buffer ahead: If current chapter has more chunks, prefetch the next one too!
+        // Buffer ahead: If current chapter has more chunks, prefetch the next one!
         if (targetChunkIndex + 1 < chapter.chunks.length) {
           const nextKey = `${book.id}_ch${targetChapterIndex}_ck${targetChunkIndex + 1}`;
           if (!preloadedBlobUrlsRef.current.has(nextKey) && !prefetchingChunksRef.current.has(nextKey)) {
             prefetchChunk(targetChapterIndex, targetChunkIndex + 1);
+          }
+        } else if (autoNext && targetChapterIndex + 1 < book.chapters.length) {
+          // Cross-chapter prefetch: prefetch chunk 0 of the next chapter!
+          const nextChapKey = `${book.id}_ch${targetChapterIndex + 1}_ck0`;
+          if (!preloadedBlobUrlsRef.current.has(nextChapKey) && !prefetchingChunksRef.current.has(nextChapKey)) {
+            prefetchChunk(targetChapterIndex + 1, 0);
           }
         }
       } catch (err) {
@@ -158,7 +209,7 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
         prefetchingChunksRef.current.delete(chunkKey);
       }
     },
-    [book, settings, currentChapterIndex]
+    [book, settings, currentChapterIndex, autoNext]
   );
 
   // Play a specific chunk
@@ -177,6 +228,7 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
       setErrorMessage(null);
       setCurrentChapterIndex(chapIdx);
       setCurrentChunkIndex(chunkIdx);
+      saveProgress(chapIdx, chunkIdx);
 
       const chunkKey = `${book.id}_ch${chapIdx}_ck${chunkIdx}`;
 
@@ -318,6 +370,7 @@ export function useAudioPlayer({ book, settings, onOpenSettings }: UseAudioPlaye
     (chapterIndex: number, startPlayImmediately = false) => {
       setCurrentChapterIndex(chapterIndex);
       setCurrentChunkIndex(0);
+      saveProgress(chapterIndex, 0);
       setCurrentTime(0);
       setChunkStatuses({});
       if (audioRef.current) {
