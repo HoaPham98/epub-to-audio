@@ -38,6 +38,11 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private endedCallbacks: Set<() => void> = new Set();
   private errorCallbacks: Set<(e: Error) => void> = new Set();
   private tickerInterval: number | null = null;
+  private gainNode: GainNode | null = null;
+  private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
+  private audioElement: HTMLAudioElement | null = null;
+  private isInternalPauseAction = false;
+  private volume = 1.0;
 
   async init(): Promise<void> {
     if (typeof window === 'undefined') return;
@@ -47,6 +52,52 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.audioContext = new AudioCtx();
+    }
+
+    if (!this.gainNode) {
+      this.gainNode = this.audioContext.createGain();
+      this.gainNode.gain.value = this.volume;
+    }
+
+    if (!this.mediaStreamDestination && typeof this.audioContext.createMediaStreamDestination === 'function') {
+      try {
+        this.mediaStreamDestination = this.audioContext.createMediaStreamDestination();
+        this.gainNode.connect(this.mediaStreamDestination);
+      } catch (e) {
+        console.warn('MediaStreamDestination not supported, falling back to direct destination', e);
+        this.gainNode.connect(this.audioContext.destination);
+      }
+    } else if (!this.mediaStreamDestination) {
+      this.gainNode.connect(this.audioContext.destination);
+    }
+
+    if (typeof document !== 'undefined' && !this.audioElement) {
+      let el = document.getElementById('background-audio-bridge') as HTMLAudioElement | null;
+      if (!el) {
+        el = document.createElement('audio');
+        el.id = 'background-audio-bridge';
+        el.style.position = 'fixed';
+        el.style.top = '-9999px';
+        el.style.left = '-9999px';
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+        el.setAttribute('playsinline', 'true');
+        el.setAttribute('webkit-playsinline', 'true');
+        el.setAttribute('x-webkit-airplay', 'allow');
+        document.body.appendChild(el);
+      }
+      this.audioElement = el;
+
+      if (this.mediaStreamDestination && this.audioElement.srcObject !== this.mediaStreamDestination.stream) {
+        this.audioElement.srcObject = this.mediaStreamDestination.stream;
+      }
+
+      // External pause listener (e.g. bluetooth disconnect, headphone unplugged, audio focus loss)
+      this.audioElement.addEventListener('pause', () => {
+        if (this.isCurrentlyPlaying && !this.isInternalPauseAction) {
+          this.pause();
+        }
+      });
     }
 
     // Strict suspension lock: if player is paused, do NOT resume audioContext
@@ -92,7 +143,8 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
     source.playbackRate.value = this.playbackSpeed;
-    source.connect(this.audioContext.destination);
+    const outputTarget = this.gainNode || this.audioContext.destination;
+    source.connect(outputTarget);
 
     const now = this.audioContext.currentTime;
     if (this.nextStartTime < now) {
@@ -165,6 +217,13 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         console.warn('Failed to resume AudioContext', err);
       }
     }
+    if (this.audioElement && this.audioElement.paused) {
+      try {
+        await this.audioElement.play();
+      } catch (err) {
+        console.warn('AudioElement play deferred:', err);
+      }
+    }
     if (this.queuedItems.length > 0 && !this.isLeadInBuffered) {
       this.isLeadInBuffered = true;
       this.flushQueuedBuffers();
@@ -174,9 +233,17 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   async pause(): Promise<void> {
+    this.isInternalPauseAction = true;
     this.playerState = 'paused';
     this.isCurrentlyPlaying = false;
     this.stopTicker();
+    if (this.audioElement && !this.audioElement.paused) {
+      try {
+        this.audioElement.pause();
+      } catch {
+        // ignore
+      }
+    }
     if (this.audioContext && this.audioContext.state === 'running') {
       try {
         await this.audioContext.suspend();
@@ -184,12 +251,21 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         console.warn('Failed to suspend AudioContext', err);
       }
     }
+    this.isInternalPauseAction = false;
   }
 
   stop(): void {
+    this.isInternalPauseAction = true;
     this.playerState = 'idle';
     this.isCurrentlyPlaying = false;
     this.stopTicker();
+    if (this.audioElement && !this.audioElement.paused) {
+      try {
+        this.audioElement.pause();
+      } catch {
+        // ignore
+      }
+    }
     this.clearQueue();
     this.stopAllNodes();
     this.totalQueuedDuration = 0;
@@ -203,6 +279,22 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.audioContext.resume().catch(() => {});
     }
     this.timeUpdateCallbacks.forEach(cb => cb(0));
+    this.isInternalPauseAction = false;
+  }
+
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(1, volume));
+    if (this.gainNode) {
+      this.gainNode.gain.value = this.volume;
+    }
+    if (this.audioElement) {
+      this.audioElement.volume = this.volume;
+      this.audioElement.muted = this.volume === 0;
+    }
+  }
+
+  getAudioElement(): HTMLAudioElement | null {
+    return this.audioElement;
   }
 
   seek(seconds: number): void {
@@ -283,6 +375,13 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.totalQueuedDuration += audioBuffer.duration;
       this.isLeadInBuffered = true;
       this.scheduleBuffer(audioBuffer, meta);
+      if (this.audioElement && this.audioElement.paused) {
+        try {
+          await this.audioElement.play();
+        } catch {
+          // ignore
+        }
+      }
     } catch (err: unknown) {
       const error =
         err instanceof Error ? err : new Error('Không thể giải mã file âm thanh từ cache');

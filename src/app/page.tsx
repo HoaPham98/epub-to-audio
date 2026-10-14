@@ -73,6 +73,19 @@ export default function Home() {
     cacheUseCase.getStats().then(setCacheStats);
   }, [cacheUseCase]);
 
+  // Register PWA Service Worker for offline support and background caching
+  useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      window.location.protocol.startsWith('http')
+    ) {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.warn('Service worker registration failed:', err);
+      });
+    }
+  }, []);
+
   // Load saved book from IndexedDB & refresh stats
   useEffect(() => {
     bookRepo.getSavedBook().then(saved => {

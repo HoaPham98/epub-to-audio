@@ -7,6 +7,7 @@ import {
   StreamAndPlayChunkUseCase,
 } from '@/application';
 import { IndexedDBAudioCache, WebAudioStreamPlayer } from '@/infrastructure';
+import { useMediaSession } from './useMediaSession';
 
 interface UseAudioStreamerProps {
   book: EpubBook | null;
@@ -448,6 +449,29 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     }
   }, [book, currentChapterIndex, isPlaying, selectChapter]);
 
+  const nextChunk = useCallback(() => {
+    if (!book) return;
+    const currentChapter = book.chapters[currentChapterIndex];
+    if (!currentChapter) return;
+    if (currentChunkIndex + 1 < currentChapter.chunks.length) {
+      playChunk(currentChapterIndex, currentChunkIndex + 1);
+    } else if (currentChapterIndex + 1 < book.chapters.length) {
+      selectChapter(currentChapterIndex + 1, true);
+    }
+  }, [book, currentChapterIndex, currentChunkIndex, playChunk, selectChapter]);
+
+  const prevChunk = useCallback(() => {
+    if (!book) return;
+    if (currentChunkIndex > 0) {
+      playChunk(currentChapterIndex, currentChunkIndex - 1);
+    } else if (currentChapterIndex > 0) {
+      const prevChap = book.chapters[currentChapterIndex - 1];
+      const lastChunkIdx = prevChap && prevChap.chunks.length > 0 ? prevChap.chunks.length - 1 : 0;
+      selectChapter(currentChapterIndex - 1, false);
+      playChunk(currentChapterIndex - 1, lastChunkIdx);
+    }
+  }, [book, currentChapterIndex, currentChunkIndex, playChunk, selectChapter]);
+
   const seekTime = useCallback(
     (time: number) => {
       audioPlayer.seek(time);
@@ -463,6 +487,23 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     },
     [currentTime, duration, seekTime]
   );
+
+  // Connect Media Session API for Notification and Lock Screen controls
+  useMediaSession({
+    book,
+    currentChapterIndex,
+    currentChunkIndex,
+    isPlaying,
+    currentTime,
+    duration,
+    playbackSpeed: settings.speed,
+    onPlay: togglePlayPause,
+    onPause: togglePlayPause,
+    onPrevChunk: prevChunk,
+    onNextChunk: nextChunk,
+    onSkipRelative: skipRelative,
+    onSeek: seekTime,
+  });
 
   // Contextual chunk click handler: if active chunk, toggle pause/play; otherwise play target chunk
   const handleChunkClick = useCallback(
@@ -495,6 +536,8 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     selectChapter,
     nextChapter,
     prevChapter,
+    nextChunk,
+    prevChunk,
     seekTime,
     skipRelative,
     toggleAutoNext,

@@ -1,0 +1,177 @@
+'use client';
+
+import { useEffect, useRef } from 'react';
+import { EpubBook } from '@/domain';
+
+interface UseMediaSessionProps {
+  book: EpubBook | null;
+  currentChapterIndex: number;
+  currentChunkIndex: number;
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  playbackSpeed: number;
+  onPlay: () => void;
+  onPause: () => void;
+  onPrevChunk: () => void;
+  onNextChunk: () => void;
+  onSkipRelative: (seconds: number) => void;
+  onSeek?: (seconds: number) => void;
+}
+
+export function useMediaSession({
+  book,
+  currentChapterIndex,
+  currentChunkIndex,
+  isPlaying,
+  currentTime,
+  duration,
+  playbackSpeed,
+  onPlay,
+  onPause,
+  onPrevChunk,
+  onNextChunk,
+  onSkipRelative,
+  onSeek,
+}: UseMediaSessionProps) {
+  const callbacksRef = useRef({
+    onPlay,
+    onPause,
+    onPrevChunk,
+    onNextChunk,
+    onSkipRelative,
+    onSeek,
+  });
+
+  useEffect(() => {
+    callbacksRef.current = {
+      onPlay,
+      onPause,
+      onPrevChunk,
+      onNextChunk,
+      onSkipRelative,
+      onSeek,
+    };
+  });
+
+  // 1. Sync MediaMetadata and Action Handlers
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
+      return;
+    }
+
+    if (!book) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+
+    const currentChapter = book.chapters[currentChapterIndex];
+    const totalChunks = currentChapter ? currentChapter.chunks.length : 0;
+    const title = currentChapter
+      ? `${currentChapter.title} - Đoạn ${currentChunkIndex + 1}/${totalChunks}`
+      : book.title;
+    const artist = book.author || 'Tác giả không xác định';
+    const album = book.title;
+
+    const artwork: MediaImage[] = [
+      {
+        src: book.coverUrl || '/icons/icon-192x192.png',
+        sizes: '192x192',
+        type: 'image/png',
+      },
+      {
+        src: book.coverUrl || '/icons/icon-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+      },
+    ];
+
+    try {
+      navigator.mediaSession.metadata = new window.MediaMetadata({
+        title,
+        artist,
+        album,
+        artwork,
+      });
+    } catch (e) {
+      console.warn('Failed to set MediaMetadata', e);
+    }
+
+    const actionHandlers: [MediaSessionAction, MediaSessionActionHandler | null][] = [
+      ['play', () => callbacksRef.current.onPlay()],
+      ['pause', () => callbacksRef.current.onPause()],
+      ['previoustrack', () => callbacksRef.current.onPrevChunk()],
+      ['nexttrack', () => callbacksRef.current.onNextChunk()],
+      [
+        'seekbackward',
+        details => callbacksRef.current.onSkipRelative(-(details.seekOffset || 10)),
+      ],
+      [
+        'seekforward',
+        details => callbacksRef.current.onSkipRelative(details.seekOffset || 10),
+      ],
+      [
+        'seekto',
+        details => {
+          if (details.seekTime !== undefined && callbacksRef.current.onSeek) {
+            callbacksRef.current.onSeek(details.seekTime);
+          }
+        },
+      ],
+      ['stop', () => callbacksRef.current.onPause()],
+    ];
+
+    for (const [action, handler] of actionHandlers) {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Browser might not support certain optional media session actions
+      }
+    }
+
+    return () => {
+      for (const [action] of actionHandlers) {
+        try {
+          navigator.mediaSession.setActionHandler(action, null);
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [book, currentChapterIndex, currentChunkIndex]);
+
+  // 2. Sync Playback State
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
+      return;
+    }
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch {
+      // ignore
+    }
+  }, [isPlaying]);
+
+  // 3. Sync Position State for Lock Screen Timeline
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !('mediaSession' in navigator) ||
+      !('setPositionState' in navigator.mediaSession)
+    ) {
+      return;
+    }
+
+    if (duration > 0 && currentTime >= 0 && Number.isFinite(duration)) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: Math.max(duration, 0.1),
+          playbackRate: Math.max(0.25, Math.min(3.0, playbackSpeed || 1.0)),
+          position: Math.min(Math.max(0, currentTime), duration),
+        });
+      } catch {
+        // Can throw if position > duration due to minor float timing jitter
+      }
+    }
+  }, [currentTime, duration, playbackSpeed]);
+}

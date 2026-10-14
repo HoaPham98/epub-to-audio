@@ -1,0 +1,54 @@
+# pwa-offline Specification
+
+## Purpose
+Enables Progressive Web App (PWA) installation, Service Worker asset precaching via Serwist, and full offline accessibility for reading EPUB books and listening to previously cached audio chunks from IndexedDB without internet access.
+
+## Requirements
+
+### Requirement: Web App Manifest and PWA Installation
+The system SHALL provide a valid Web App Manifest (`manifest.json` / `manifest.webmanifest`) declaring application identity, icons, theme colors, and standalone display mode to support native-like installation on Android, iOS, and Desktop platforms.
+
+#### Scenario: Valid manifest retrieval
+- **WHEN** a browser requests the manifest metadata
+- **THEN** the system returns a JSON response containing `name: "EPUB to Audio Reader"`, `short_name: "EPUB Audio"`, `display: "standalone"`, `start_url: "/"`, `theme_color: "#0a0a0a"`, and responsive icons (192x192, 512x512, maskable).
+
+#### Scenario: Standalone launch
+- **WHEN** the user launches the installed PWA from their device home screen or app launcher
+- **THEN** the application opens in standalone mode without browser URL bars or navigational chrome.
+
+### Requirement: Service Worker App Shell Caching and Offline Assets
+The system SHALL register a Service Worker powered by Serwist (`@serwist/next`) to precache static assets, CSS, fonts, and the application shell, serving them cache-first to guarantee fast, offline startup.
+
+#### Scenario: Offline application load
+- **WHEN** the user opens the application with no internet connectivity
+- **THEN** the Service Worker serves the precached App Shell and assets from cache
+- **AND** the reader interface loads completely without displaying a browser offline error page.
+
+#### Scenario: Background Service Worker update
+- **WHEN** a new version of the application is deployed
+- **THEN** the Service Worker installs updates in the background and activates when old tabs are closed.
+
+### Requirement: In-App PWA Install Prompt and iOS Safari Guidance
+The system SHALL detect PWA installability and provide a clean, non-intrusive in-app install trigger for supported browsers, as well as an explanatory guide for iOS Safari users.
+
+#### Scenario: Triggering custom install prompt on Chromium browsers
+- **WHEN** the browser fires the `beforeinstallprompt` event
+- **THEN** the system captures the event and displays an "Cài đặt ứng dụng" button in the application Header and Settings modal
+- **AND** clicking the button prompts the native browser installation dialog.
+
+#### Scenario: Displaying iOS Safari "Add to Home Screen" instructions
+- **WHEN** an iOS Safari user clicks the install button
+- **THEN** the application displays a friendly modal guiding the user to tap the Share button and select "Add to Home Screen".
+
+### Requirement: Offline Reading and Audio Playback from IndexedDB
+The system SHALL allow reading imported EPUB books and playing cached TTS audio chunks completely offline without sending requests to external TTS proxies or servers.
+
+#### Scenario: Playing cached chunk while offline
+- **WHEN** the device has no network connection
+- **AND** the user plays a chunk that has already been persisted in IndexedDB
+- **THEN** the system retrieves the audio blob from IndexedDB and plays it immediately
+- **AND** updates Reader highlights in sync without displaying network errors.
+
+#### Scenario: Attempting to stream un-cached chunk while offline
+- **WHEN** the device is offline and the user reaches a chunk not yet cached in IndexedDB
+- **THEN** the system informs the user that network is required to synthesize new chunks, without crashing the player state machine.

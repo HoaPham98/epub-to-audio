@@ -19,6 +19,8 @@ export interface IAudioStreamPlayer {
   getPlayerState(): 'idle' | 'playing' | 'paused';
   clearQueue(): void;
   playCachedBlob(blob: Blob, speed?: number, append?: boolean, meta?: ChunkMeta): Promise<void>;
+  setVolume?(volume: number): void;
+  getAudioElement?(): HTMLAudioElement | null;
   onTimeUpdate(callback: (currentTime: number) => void): () => void;
   onChunkChange(callback: (chapterIndex: number, chunkIndex: number) => void): () => void;
   onEnded(callback: () => void): () => void;

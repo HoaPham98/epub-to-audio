@@ -78,10 +78,12 @@ export function AudioPlayerBar({
   const effectiveDuration = Math.max(duration, estimatedDuration);
 
   const handleVolumeToggle = () => {
-    setIsMuted(!isMuted);
-    const audioEl = document.querySelector('audio');
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    const audioEl = (document.getElementById('background-audio-bridge') ||
+      document.querySelector('audio')) as HTMLAudioElement | null;
     if (audioEl) {
-      audioEl.muted = !isMuted;
+      audioEl.muted = nextMuted;
     }
   };
 
@@ -89,7 +91,8 @@ export function AudioPlayerBar({
     const val = parseFloat(e.target.value);
     setVolume(val);
     setIsMuted(val === 0);
-    const audioEl = document.querySelector('audio');
+    const audioEl = (document.getElementById('background-audio-bridge') ||
+      document.querySelector('audio')) as HTMLAudioElement | null;
     if (audioEl) {
       audioEl.volume = val;
       audioEl.muted = val === 0;
