@@ -53,12 +53,20 @@ The system SHALL support strict sequential chaining for CPU-only backends with `
 - **THEN** no other prefetch or background requests are initiated until the current stream closes
 
 ### Requirement: Timeline-Based Reader Highlighting Synchronization
-The system SHALL track timeline boundaries `{ chapterIndex, chunkIndex, startTime, endTime }` for all scheduled chunks in the audio player and notify presentation components as playback transitions across chunk boundaries.
+The system SHALL track timeline boundaries `{ chapterIndex, chunkIndex, startTime, endTime }` for all scheduled chunks in the audio player and notify presentation components as playback transitions across chunk boundaries, isolating viewport auto-scrolling to chunk index changes while suppressing scroll events during playback state toggles.
 
 #### Scenario: Chunk boundary transition
 - **WHEN** the current playback time crosses the start time of the next scheduled chunk
 - **THEN** the system fires an `onChunkChange` event
 - **AND** the Reader component updates active highlight and scrolls into view without interrupting audio playback
+
+#### Scenario: Play and pause state toggles suppress viewport scroll
+- **WHEN** the user toggles play or pause state via the UI, MediaSession, or hardware controls without changing the active chunk
+- **THEN** the reader updates playback state indicators without executing any viewport scroll animation
+
+#### Scenario: Background chunk transition suppresses auto-scroll
+- **WHEN** audio playback transitions chunk boundaries while the tab is hidden or backgrounded
+- **THEN** the reader updates active chunk indexes without executing `scrollIntoView`
 
 ### Requirement: Immediate Stream Cancellation on User Action
 The system SHALL abort in-flight TTS streaming requests and halt active playback nodes when the user seeks or jumps to another chunk or chapter, while preserving in-flight streams on pause and toggling pause/resume when interacting with the active chunk.
@@ -173,7 +181,7 @@ The system SHALL map scrubber seek actions across the entire active chapter, jum
 - **THEN** the chapter scrubber resets its timeline to `00:00` spanning the duration of the new chapter
 
 ### Requirement: System and Notification Playback State Synchronization
-The system SHALL maintain synchronous and bidirectional playback state alignment between the Web Audio player, the application UI state, and the native operating system MediaSession notification, presenting a streamlined 3-button audiobook control layout and maintaining a persistent action handler lifecycle that prevents notification drawer collapse.
+The system SHALL maintain synchronous and bidirectional playback state alignment between the Web Audio player, the application UI state, and the native operating system MediaSession notification, throttling timeline updates, presenting a streamlined 3-button audiobook control layout, and maintaining a persistent action handler lifecycle that prevents notification drawer collapse.
 
 #### Scenario: User pauses playback from Android notification shade
 - **WHEN** the user taps the pause action on the Android notification or lockscreen controls
@@ -194,6 +202,11 @@ The system SHALL maintain synchronous and bidirectional playback state alignment
 - **WHEN** the media session notification is displayed on Android
 - **THEN** it exposes only rewind 10s (`seekbackward`), play/pause (`play`, `pause`), and fast-forward 10s (`seekforward`), plus timeline scrubbing (`seekto`)
 - **AND** omits `stop`, `previoustrack`, and `nexttrack` to maximize touch target size and prevent accidental notification dismissal
+
+#### Scenario: Throttled MediaSession position synchronization
+- **WHEN** the Web Audio player ticks high-frequency playback time updates (50ms)
+- **THEN** `navigator.mediaSession.setPositionState` dispatches are throttled to a minimum interval of 500ms
+- **AND** full position state is synchronized immediately upon explicit user seek or chunk change
 
 ### Requirement: iOS and Multiplatform Background Audio Continuity
 The system SHALL route Web Audio synthesized speech output through an HTML5 audio element bridge backed by a MediaStream destination, and SHALL configure AudioSession playback intent so that playback persists seamlessly when mobile device screens lock or applications transition to the background.

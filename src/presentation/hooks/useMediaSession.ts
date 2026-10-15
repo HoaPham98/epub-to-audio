@@ -43,6 +43,14 @@ export function useMediaSession({
     onSeek,
   });
 
+  const lastPositionUpdateRef = useRef<number>(0);
+  const lastReportedTimeRef = useRef<number>(0);
+  const lastChapterChunkRef = useRef<{ chapter: number; chunk: number }>({
+    chapter: currentChapterIndex,
+    chunk: currentChunkIndex,
+  });
+  const lastPlayingRef = useRef<boolean>(isPlaying);
+
   useEffect(() => {
     callbacksRef.current = {
       onPlay,
@@ -189,7 +197,7 @@ export function useMediaSession({
     }
   }, [isPlaying]);
 
-  // 4. Sync Position State for Lock Screen Timeline
+  // 4. Sync Position State for Lock Screen Timeline with minimum 500ms throttle
   useEffect(() => {
     if (
       typeof window === 'undefined' ||
@@ -200,15 +208,33 @@ export function useMediaSession({
     }
 
     if (duration > 0 && currentTime >= 0 && Number.isFinite(duration)) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: Math.max(duration, 0.1),
-          playbackRate: Math.max(0.25, Math.min(3.0, playbackSpeed || 1.0)),
-          position: Math.min(Math.max(0, currentTime), duration),
-        });
-      } catch {
-        // Can throw if position > duration due to minor float timing jitter
+      const now = Date.now();
+      const isChunkChanged =
+        currentChapterIndex !== lastChapterChunkRef.current.chapter ||
+        currentChunkIndex !== lastChapterChunkRef.current.chunk;
+      const isExplicitSeek = Math.abs(currentTime - lastReportedTimeRef.current) > 2.0;
+      const isPlaybackStateChanged = isPlaying !== lastPlayingRef.current;
+      const isThrottled = now - lastPositionUpdateRef.current >= 500;
+
+      if (isChunkChanged || isExplicitSeek || isPlaybackStateChanged || isThrottled) {
+        lastPositionUpdateRef.current = now;
+        lastReportedTimeRef.current = currentTime;
+        lastChapterChunkRef.current = {
+          chapter: currentChapterIndex,
+          chunk: currentChunkIndex,
+        };
+        lastPlayingRef.current = isPlaying;
+
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: Math.max(duration, 0.1),
+            playbackRate: Math.max(0.25, Math.min(3.0, playbackSpeed || 1.0)),
+            position: Math.min(Math.max(0, currentTime), duration),
+          });
+        } catch {
+          // Can throw if position > duration due to minor float timing jitter
+        }
       }
     }
-  }, [currentTime, duration, playbackSpeed]);
+  }, [currentTime, duration, playbackSpeed, currentChapterIndex, currentChunkIndex, isPlaying]);
 }

@@ -36,13 +36,16 @@ export function Reader({
 
   // Smooth auto-scroll the currently reading chunk to the center of the viewport
   useEffect(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
     if (activeChunkRef.current) {
       activeChunkRef.current.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
       });
     }
-  }, [currentChapterIndex, currentChunkIndex, isPlaying]);
+  }, [currentChapterIndex, currentChunkIndex]);
 
   if (!book) {
     return (
