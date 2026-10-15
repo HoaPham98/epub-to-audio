@@ -290,13 +290,11 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.notifyPlaybackState('paused');
     this.isCurrentlyPlaying = false;
     this.stopTicker();
-    if (this.audioElement && !this.audioElement.paused) {
-      try {
-        this.audioElement.pause();
-      } catch {
-        // ignore
-      }
-    }
+    // Do NOT pause this.audioElement here.
+    // The background audio bridge plays pure digital silence (/silence-10s.wav).
+    // Keeping it playing preserves the active MediaSession / Windows SMTC anchor,
+    // allowing OS hardware shortcuts and volume flyout controls to resume playback.
+    // Actual speech playback is suspended via AudioContext below.
     if (this.audioContext && this.audioContext.state === 'running') {
       try {
         await this.audioContext.suspend();

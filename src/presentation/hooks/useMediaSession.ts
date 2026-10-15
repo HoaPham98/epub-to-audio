@@ -240,7 +240,7 @@ export function useMediaSession({
         try {
           navigator.mediaSession.setPositionState({
             duration: Math.max(duration, 0.1),
-            playbackRate: Math.max(0.25, Math.min(3.0, playbackSpeed || 1.0)),
+            playbackRate: isPlaying ? Math.max(0.25, Math.min(3.0, playbackSpeed || 1.0)) : 0,
             position: Math.min(Math.max(0, currentTime), duration),
           });
         } catch {
