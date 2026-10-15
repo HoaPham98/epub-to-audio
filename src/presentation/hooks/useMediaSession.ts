@@ -163,6 +163,18 @@ export function useMediaSession({
           }
         },
       ],
+      [
+        'previoustrack',
+        () => {
+          callbacksRef.current.onPrevChunk();
+        },
+      ],
+      [
+        'nexttrack',
+        () => {
+          callbacksRef.current.onNextChunk();
+        },
+      ],
     ];
 
     for (const [action, handler] of actionHandlers) {

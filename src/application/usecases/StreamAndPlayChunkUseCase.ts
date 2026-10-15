@@ -79,7 +79,7 @@ export class StreamAndPlayChunkUseCase {
 
     await this.audioPlayer.init();
     if (!append) {
-      this.audioPlayer.stop();
+      this.audioPlayer.stop(false);
     }
 
     const ttsClient = ttsServiceOverride ?? TTSClientFactory.create(settings);

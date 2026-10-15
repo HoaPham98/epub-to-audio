@@ -8,7 +8,7 @@ export interface IAudioStreamPlayer {
   queuePcmChunk(pcmBuffer: ArrayBuffer, sampleRate?: number, meta?: ChunkMeta): void;
   play(): Promise<void>;
   pause(): Promise<void> | void;
-  stop(): void;
+  stop(pauseBridge?: boolean): void;
   seek(seconds: number): void;
   setSpeed(speed: number): void;
   getCurrentTime(): number;

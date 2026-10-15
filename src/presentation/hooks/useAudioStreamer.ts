@@ -639,9 +639,11 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     if (isPlaying) {
       pauseAudio();
     } else {
+      audioPlayer.init();
+      audioPlayer.ensureAudioElementPlaying?.();
       resumeAudio();
     }
-  }, [isPlaying, pauseAudio, resumeAudio]);
+  }, [isPlaying, audioPlayer, pauseAudio, resumeAudio]);
 
   // Jump to chapter
   const selectChapter = useCallback(
@@ -764,13 +766,15 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   // Contextual chunk click handler: if active chunk, toggle pause/play; otherwise play target chunk
   const handleChunkClick = useCallback(
     (chapIdx: number, chunkIdx: number) => {
+      audioPlayer.init();
+      audioPlayer.ensureAudioElementPlaying?.();
       if (chapIdx === currentChapterIndex && chunkIdx === currentChunkIndex) {
         togglePlayPause();
       } else {
         playChunk(chapIdx, chunkIdx);
       }
     },
-    [currentChapterIndex, currentChunkIndex, togglePlayPause, playChunk]
+    [audioPlayer, currentChapterIndex, currentChunkIndex, togglePlayPause, playChunk]
   );
 
   return {

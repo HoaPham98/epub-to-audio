@@ -181,7 +181,7 @@ The system SHALL map scrubber seek actions across the entire active chapter, jum
 - **THEN** the chapter scrubber resets its timeline to `00:00` spanning the duration of the new chapter
 
 ### Requirement: System and Notification Playback State Synchronization
-The system SHALL maintain synchronous and bidirectional playback state alignment between the Web Audio player, the application UI state, and the native operating system MediaSession notification, throttling timeline updates, presenting a streamlined 3-button audiobook control layout, and maintaining a persistent action handler lifecycle that prevents notification drawer collapse.
+The system SHALL maintain synchronous and bidirectional playback state alignment between the Web Audio player, the application UI state, and the native operating system MediaSession notification, throttling timeline updates, supporting full OS media transport shortcuts (including previous and next track navigation), and maintaining a persistent action handler lifecycle that prevents notification drawer collapse.
 
 #### Scenario: User pauses playback from Android notification shade
 - **WHEN** the user taps the pause action on the Android notification or lockscreen controls
@@ -194,14 +194,19 @@ The system SHALL maintain synchronous and bidirectional playback state alignment
 - **AND** the application state synchronizes `isPlaying` to `false` and reflects `paused` across the UI and MediaSession
 
 #### Scenario: Persistent notification shade across media control interactions
-- **WHEN** the user taps any media control button (play, pause, rewind 10s, fast-forward 10s) on the Android notification shade
+- **WHEN** the user taps any media control button (play, pause, rewind 10s, fast-forward 10s, prev track, next track) on the notification shade
 - **THEN** the system executes the requested action without tearing down or rebuilding MediaSession action handlers
-- **AND** the Android notification shade remains expanded for subsequent user interactions without auto-closing
+- **AND** the notification shade remains expanded for subsequent user interactions without auto-closing
 
 #### Scenario: Focused 3-button audiobook notification layout
-- **WHEN** the media session notification is displayed on Android
-- **THEN** it exposes only rewind 10s (`seekbackward`), play/pause (`play`, `pause`), and fast-forward 10s (`seekforward`), plus timeline scrubbing (`seekto`)
-- **AND** omits `stop`, `previoustrack`, and `nexttrack` to maximize touch target size and prevent accidental notification dismissal
+- **WHEN** the media session notification is displayed on Android or desktop OS
+- **THEN** it exposes rewind 10s (`seekbackward`), play/pause (`play`, `pause`), fast-forward 10s (`seekforward`), plus timeline scrubbing (`seekto`), and registers `previoustrack` and `nexttrack`
+- **AND** maps physical hardware media keys and OS transport buttons to chunk/chapter navigation without collapsing the notification drawer
+
+#### Scenario: Full media session action handlers for OS shortcuts and hardware media keys
+- **WHEN** the media session initializes
+- **THEN** the system registers action handlers for `play`, `pause`, `previoustrack`, `nexttrack`, `seekbackward`, `seekforward`, and `seekto`
+- **AND** hardware media keys (Play/Pause, Previous Track, Next Track) and Windows SMTC / macOS / mobile OS controls map directly to chunk navigation and audio playback controls
 
 #### Scenario: Throttled MediaSession position synchronization
 - **WHEN** the Web Audio player ticks high-frequency playback time updates (50ms)
@@ -209,7 +214,7 @@ The system SHALL maintain synchronous and bidirectional playback state alignment
 - **AND** full position state is synchronized immediately upon explicit user seek or chunk change
 
 ### Requirement: iOS and Multiplatform Background Audio Continuity
-The system SHALL route Web Audio synthesized speech output through an HTML5 audio element bridge backed by a MediaStream destination, and SHALL configure AudioSession playback intent so that playback persists seamlessly when mobile device screens lock or applications transition to the background.
+The system SHALL maintain active OS media session continuity and background audio playback across desktop and mobile platforms via an HTML5 audio element bridge playing a looping silent audio track (`/silence-10s.wav`), unlocked synchronously within the initial user gesture, while Web Audio delivers speech audio directly to `audioContext.destination`.
 
 #### Scenario: iOS background playback on device lock
 - **WHEN** audio playback is actively progressing and the user locks the mobile device (e.g. iOS Safari) or minimizes the browser
@@ -223,7 +228,13 @@ The system SHALL route Web Audio synthesized speech output through an HTML5 audi
 
 #### Scenario: Real media stream binding replaces dummy silence bridge
 - **WHEN** the audio player initializes its audio pipeline
-- **THEN** it connects the Web Audio graph's gain node to a `MediaStreamAudioDestinationNode`
-- **AND** assigns the resulting stream to the HTML5 audio element's `srcObject`
-- **AND** does not require fetching or looping static `/silence-10s.wav` audio files
+- **THEN** it routes Web Audio directly to `audioContext.destination` and bridges background playback through a dedicated HTML5 silent audio loop element (`/silence-10s.wav`)
+- **AND** replaces live `MediaStreamAudioDestinationNode` constraints to ensure Windows SMTC compatibility and immediate user activation retention
+
+#### Scenario: Silent audio loop bridge with immediate user gesture unlock
+- **WHEN** the user initiates playback by clicking play or selecting a chunk
+- **THEN** the HTML5 audio element bridge immediately starts playing `/silence-10s.wav` in a loop within the synchronous user interaction
+- **AND** claims an active OS media session with Windows SMTC and mobile notification systems
+- **AND** the Web Audio pipeline routes speech audio directly to `audioContext.destination` without MediaStream constraints
+
 

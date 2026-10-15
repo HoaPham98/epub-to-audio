@@ -39,7 +39,6 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private endedCallbacks: Set<() => void> = new Set();
   private errorCallbacks: Set<(e: Error) => void> = new Set();
   private tickerInterval: number | null = null;
-  private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
   private hasBoundVisibilityListener = false;
   private gainNode: GainNode | null = null;
   private audioElement: HTMLAudioElement | null = null;
@@ -78,19 +77,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     if (!this.gainNode) {
       this.gainNode = this.audioContext.createGain();
       this.gainNode.gain.value = this.volume;
-
-      // Connect gainNode to MediaStreamDestination for HTML5 audio element bridge (iOS Safari background playback)
-      if (typeof this.audioContext.createMediaStreamDestination === 'function') {
-        try {
-          this.mediaStreamDestination = this.audioContext.createMediaStreamDestination();
-          this.gainNode.connect(this.mediaStreamDestination);
-        } catch (err) {
-          console.warn('Failed to createMediaStreamDestination, falling back to audioContext.destination', err);
-          this.gainNode.connect(this.audioContext.destination);
-        }
-      } else {
-        this.gainNode.connect(this.audioContext.destination);
-      }
+      this.gainNode.connect(this.audioContext.destination);
     }
 
     if (typeof document !== 'undefined') {
@@ -108,7 +95,14 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
           el.setAttribute('webkit-playsinline', 'true');
           el.setAttribute('x-webkit-airplay', 'allow');
           el.preload = 'auto';
+          el.loop = true;
+          el.src = '/silence-10s.wav';
           document.body.appendChild(el);
+        } else {
+          el.loop = true;
+          if (!el.src || !el.src.includes('/silence-10s.wav')) {
+            el.src = '/silence-10s.wav';
+          }
         }
         this.audioElement = el;
 
@@ -130,21 +124,6 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
             this.play();
           }
         });
-      }
-
-      if (this.audioElement && this.mediaStreamDestination) {
-        try {
-          if (this.audioElement.srcObject !== this.mediaStreamDestination.stream) {
-            this.audioElement.srcObject = this.mediaStreamDestination.stream;
-          }
-        } catch (err) {
-          console.warn('Failed to assign srcObject to audioElement, connecting gainNode to destination:', err);
-          if (this.gainNode && this.audioContext) {
-            try {
-              this.gainNode.connect(this.audioContext.destination);
-            } catch {}
-          }
-        }
       }
 
       // Auto-resume AudioContext on returning to foreground
@@ -328,13 +307,13 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.isInternalPauseAction = false;
   }
 
-  stop(): void {
+  stop(pauseBridge = true): void {
     this.isInternalPauseAction = true;
     this.playerState = 'idle';
     this.notifyPlaybackState('idle');
     this.isCurrentlyPlaying = false;
     this.stopTicker();
-    if (this.audioElement && !this.audioElement.paused) {
+    if (pauseBridge && this.audioElement && !this.audioElement.paused) {
       try {
         this.audioElement.pause();
       } catch {
@@ -434,7 +413,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   ): Promise<void> {
     await this.init();
     if (!append) {
-      this.stop();
+      this.stop(false);
     }
 
     if (speed !== undefined) {
