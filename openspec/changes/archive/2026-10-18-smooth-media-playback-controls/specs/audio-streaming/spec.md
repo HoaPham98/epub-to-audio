@@ -37,6 +37,11 @@ The system SHALL maintain synchronous and bidirectional playback state alignment
 - **THEN** it exposes seek backward (`seekbackward`), seek forward (`seekforward`), play/pause (`play`, `pause`), timeline scrubbing (`seekto`), and chunk navigation (`previoustrack`, `nexttrack`)
 - **AND** each registered handler routes to the corresponding audio streamer navigation routine
 
+#### Scenario: Full media session action handlers for OS shortcuts and hardware media keys
+- **WHEN** the media session initializes
+- **THEN** the system registers action handlers for `play`, `pause`, `previoustrack`, `nexttrack`, `seekbackward`, `seekforward`, and `seekto`
+- **AND** hardware media keys (Play/Pause, Previous Track, Next Track) and Windows SMTC / macOS / mobile OS controls map directly to chunk navigation and audio playback controls
+
 #### Scenario: Throttled MediaSession position synchronization
 - **WHEN** the Web Audio player ticks high-frequency playback time updates (50ms)
 - **THEN** `navigator.mediaSession.setPositionState` dispatches are throttled to a minimum interval of 500ms

@@ -181,12 +181,19 @@ The system SHALL map scrubber seek actions across the entire active chapter, jum
 - **THEN** the chapter scrubber resets its timeline to `00:00` spanning the duration of the new chapter
 
 ### Requirement: System and Notification Playback State Synchronization
-The system SHALL maintain synchronous and bidirectional playback state alignment between the Web Audio player, the application UI state, and the native operating system MediaSession notification, throttling timeline updates, setting playbackRate to 0 when paused, supporting full OS media transport shortcuts (including previous and next track navigation), and maintaining a persistent action handler lifecycle that prevents notification drawer collapse.
+The system SHALL maintain synchronous and bidirectional playback state alignment between the Web Audio player, the application UI state, and the native operating system MediaSession notification, keeping the background audio bridge active via gain-level muting during pause to prevent notification shade dismissal, and supporting responsive notification playback control.
 
 #### Scenario: User pauses playback from Android notification shade
 - **WHEN** the user taps the pause action on the Android notification or lockscreen controls
 - **THEN** the system immediately and synchronously sets `navigator.mediaSession.playbackState = 'paused'`
-- **AND** suspends audio output and updates the application playback state `isPlaying` to `false`
+- **AND** mutes audio output via the audio graph gain node without suspending the MediaStream or tearing down the audio element
+- **AND** updates the application playback state `isPlaying` to `false`
+
+#### Scenario: User resumes playback from Android notification shade
+- **WHEN** the user taps the play action on the Android notification or lockscreen controls while paused
+- **THEN** the system sets `navigator.mediaSession.playbackState = 'playing'`
+- **AND** restores audio output volume and validates that scheduled audio buffers are valid
+- **AND** if buffered audio nodes expired during the pause duration, seamlessly re-streams from the active playback position without stalling
 
 #### Scenario: External hardware or OS pause event
 - **WHEN** the underlying audio playback is paused by the operating system (e.g. headphone unplug, Bluetooth disconnection, or native audio focus interruption)
@@ -195,13 +202,18 @@ The system SHALL maintain synchronous and bidirectional playback state alignment
 
 #### Scenario: Persistent notification shade across media control interactions
 - **WHEN** the user taps any media control button (play, pause, rewind 10s, fast-forward 10s, prev track, next track) on the notification shade
-- **THEN** the system executes the requested action without tearing down or rebuilding MediaSession action handlers
-- **AND** the notification shade remains expanded for subsequent user interactions without auto-closing
+- **THEN** the system executes the requested action without causing the MediaStream to terminate or the notification drawer to auto-close
+- **AND** the Android notification shade remains expanded for subsequent user interactions
 
 #### Scenario: Focused 3-button audiobook notification layout
-- **WHEN** the media session notification is displayed on Android or desktop OS
-- **THEN** it exposes rewind 10s (`seekbackward`), play/pause (`play`, `pause`), fast-forward 10s (`seekforward`), plus timeline scrubbing (`seekto`), and registers `previoustrack` and `nexttrack`
-- **AND** maps physical hardware media keys and OS transport buttons to chunk/chapter navigation without collapsing the notification drawer
+- **WHEN** the media session notification is displayed on Android
+- **THEN** it exposes rewind 10s (`seekbackward`), play/pause (`play`, `pause`), and fast-forward 10s (`seekforward`), plus timeline scrubbing (`seekto`) and track skip handlers (`previoustrack`, `nexttrack`)
+- **AND** routes media hardware actions to their corresponding player navigation controls
+
+#### Scenario: MediaSession action handler mapping for navigation and seeking
+- **WHEN** the media session notification is displayed on Android or desktop
+- **THEN** it exposes seek backward (`seekbackward`), seek forward (`seekforward`), play/pause (`play`, `pause`), timeline scrubbing (`seekto`), and chunk navigation (`previoustrack`, `nexttrack`)
+- **AND** each registered handler routes to the corresponding audio streamer navigation routine
 
 #### Scenario: Full media session action handlers for OS shortcuts and hardware media keys
 - **WHEN** the media session initializes
@@ -211,7 +223,6 @@ The system SHALL maintain synchronous and bidirectional playback state alignment
 #### Scenario: Throttled MediaSession position synchronization
 - **WHEN** the Web Audio player ticks high-frequency playback time updates (50ms)
 - **THEN** `navigator.mediaSession.setPositionState` dispatches are throttled to a minimum interval of 500ms
-- **AND** `playbackRate` is reported as `0` when playback is paused (`isPlaying === false`), and as the active `playbackSpeed` when playing
 - **AND** full position state is synchronized immediately upon explicit user seek or chunk change
 
 ### Requirement: iOS and Multiplatform Background Audio Continuity
@@ -279,5 +290,57 @@ The system SHALL keep the reader and native media notification aligned with conf
 - **WHEN** the browser or operating system suspends speech output while playback is reported as playing
 - **THEN** the reader and media notification transition to paused
 
+### Requirement: Screen-Off Background Audio Playback via HTMLMediaElement Bridge
+The system SHALL route Web Audio API (`AudioContext`) output to a `MediaStreamAudioDestinationNode` connected to an HTML `<audio>` element (`srcObject = destination.stream`), keeping the OS background audio session alive when the screen is turned off or when the application is placed in the background on mobile and desktop browsers.
+
+#### Scenario: Continuous background playback when device screen locks
+- **WHEN** audio is actively playing or streaming a book chunk
+- **AND** the user locks the mobile device or switches to another application
+- **THEN** audio continues playing seamlessly through the bridged HTML `<audio>` element without stopping or stuttering
+- **AND** the system continues receiving and scheduling sequential audio chunks over the network.
+
+#### Scenario: Audio pipeline initialization on user gesture
+- **WHEN** the user initiates playback for the first time
+- **THEN** both the `AudioContext` and the bridged HTML `<audio>` element are unlocked simultaneously within the user gesture handler
+- **AND** the `<audio>` element plays silence or the piped media stream without throwing autoplay errors.
+
+### Requirement: Media Session API Integration for System Notification and Lock Screen Controls
+The system SHALL synchronize playback state, track metadata, and hardware/notification controls via `navigator.mediaSession`, allowing the user to view track information and control playback from the system notification shade and lock screen.
+
+#### Scenario: Displaying rich book and chunk metadata
+- **WHEN** audio playback starts or transitions to chunk $Y$ of chapter $X$ in book $B$
+- **THEN** the system sets `navigator.mediaSession.metadata` with:
+  - `title`: `[Tên chương] - Đoạn Y/TotalChunks`
+  - `artist`: `[Tên tác giả]`
+  - `album`: `[Tên sách]`
+  - `artwork`: The book cover URL (if present) and fallback high-resolution application icons.
+
+#### Scenario: Controlling playback via notification Play/Pause action
+- **WHEN** the user triggers the `play` or `pause` action on the system notification or lock screen
+- **THEN** the system toggles `AudioPlayer` state between playing and paused
+- **AND** updates `navigator.mediaSession.playbackState` to reflect `'playing'` or `'paused'`.
+
+#### Scenario: Navigating chunks via notification Next/Previous Track action
+- **WHEN** the user triggers `nexttrack` from the lock screen or notification
+- **THEN** the system advances to chunk $Y+1$ (or chunk 0 of chapter $X+1$ if at the end of the chapter)
+- **AND** when the user triggers `previoustrack`, the system navigates to chunk $Y-1$ (or the previous chapter if at the start).
+
+#### Scenario: Relative seeking via notification Seek Backward/Forward action
+- **WHEN** the user triggers `seekbackward` or `seekforward` with an offset (defaulting to 10 seconds)
+- **THEN** the player adjusts playback position backward or forward by the specified amount
+- **AND** updates `navigator.mediaSession.setPositionState` with the new position and duration.
+
+### Requirement: Audio Interruption and Audio Focus Handling
+The system SHALL automatically respond to external audio interruptions and device audio route changes, pausing audio cleanly when headphones or Bluetooth devices disconnect.
+
+#### Scenario: Headphone or Bluetooth disconnection
+- **WHEN** audio is playing and the output audio device is disconnected (headphone unplugged or Bluetooth turned off)
+- **THEN** the system pauses audio playback automatically
+- **AND** updates the UI and notification state to paused to prevent sudden loudspeaker playback.
+
+#### Scenario: Audio focus loss due to incoming call
+- **WHEN** the operating system interrupts the audio session (e.g. incoming call or another media app starts)
+- **THEN** the bridged `<audio>` element receives the pause/interruption event
+- **AND** the system transitions to paused state, preserving the exact resume position.
 
 

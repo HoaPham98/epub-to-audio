@@ -1,9 +1,9 @@
-# pwa-offline Specification
+# Spec Delta
 
 ## Purpose
 Enables Progressive Web App (PWA) installation, Service Worker asset precaching via Serwist, and full offline accessibility for reading EPUB books and listening to previously cached audio chunks from IndexedDB without internet access.
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Web App Manifest and PWA Installation
 The system SHALL provide a valid Web App Manifest (`manifest.json` / `manifest.webmanifest`) declaring application identity, icons, theme colors, and standalone display mode to support native-like installation on Android, iOS, and Desktop platforms.
