@@ -215,7 +215,7 @@ The system SHALL maintain synchronous and bidirectional playback state alignment
 - **AND** full position state is synchronized immediately upon explicit user seek or chunk change
 
 ### Requirement: iOS and Multiplatform Background Audio Continuity
-The system SHALL maintain active OS media session continuity and background audio playback across desktop and mobile platforms via an HTML5 audio element bridge playing a looping silent audio track (`/silence-10s.wav`), unlocked synchronously within the initial user gesture, kept running during pause to preserve Windows SMTC and OS transport controls while suspending Web Audio speech output, and stopped only upon explicit reader stop.
+The system SHALL maintain active OS media session continuity and background audio playback across desktop and mobile platforms, using an HTML5 audio element bridge that represents the actual speech playback state and remains available for system media controls while paused.
 
 #### Scenario: iOS background playback on device lock
 - **WHEN** audio playback is actively progressing and the user locks the mobile device (e.g. iOS Safari) or minimizes the browser
@@ -228,25 +228,56 @@ The system SHALL maintain active OS media session continuity and background audi
 - **AND** playback is not interrupted by physical silent/mute switches
 
 #### Scenario: Real media stream binding replaces dummy silence bridge
-- **WHEN** the audio player initializes its audio pipeline
-- **THEN** it routes Web Audio directly to `audioContext.destination` and bridges background playback through a dedicated HTML5 silent audio loop element (`/silence-10s.wav`)
-- **AND** replaces live `MediaStreamAudioDestinationNode` constraints to ensure Windows SMTC compatibility and immediate user activation retention
+- **WHEN** a platform spike confirms that a MediaStream-backed audio element can retain system media controls and accurately represent speech state
+- **THEN** the system routes speech audio through that media element bridge
+- **AND** does not use a separately playing silent loop to represent speech playback
 
 #### Scenario: Silent audio loop bridge with immediate user gesture unlock
-- **WHEN** the user initiates playback by clicking play or selecting a chunk
-- **THEN** the HTML5 audio element bridge immediately starts playing `/silence-10s.wav` in a loop within the synchronous user interaction
-- **AND** claims an active OS media session with Windows SMTC and mobile notification systems
-- **AND** the Web Audio pipeline routes speech audio directly to `audioContext.destination` without MediaStream constraints
+- **WHEN** a platform requires a silent audio loop bridge to establish system media controls
+- **THEN** the system starts the bridge during the initial user gesture
+- **AND** its reported playback state is synchronized with confirmed speech playback
 
 #### Scenario: Silent audio bridge retention on pause
-- **WHEN** the user pauses playback
-- **THEN** the Web Audio pipeline suspends `AudioContext` to halt speech output
-- **AND** the HTML5 audio element bridge continues looping the silent audio track in the background
-- **AND** the OS media session (Windows SMTC, mobile notification) remains pinned with the Play button visible
+- **WHEN** the silent audio loop is the selected supported bridge and speech playback is paused
+- **THEN** the bridge lifecycle preserves an available paused media session with a Play action
+- **AND** the notification reports paused rather than playing
+
+#### Scenario: Media bridge follows confirmed speech state
+- **WHEN** speech playback is paused or resumed
+- **THEN** the HTML audio bridge and Media Session report the confirmed speech playback state
+- **AND** the paused media session remains available with a Play action
+- **AND** the chosen bridge lifecycle is verified on Windows Chrome and Android Chrome
 
 #### Scenario: Bridge paused on explicit stop
 - **WHEN** playback is explicitly stopped or reset by the reader
 - **THEN** the HTML5 audio element bridge is paused and the media session is released
+
+### Requirement: Notification Playback State Follows Confirmed Speech Output
+The system SHALL keep the reader and native media notification aligned with confirmed speech playback state, independently of TTS network streaming or prefetch activity.
+
+#### Scenario: Pausing while TTS data continues to arrive
+- **WHEN** speech playback is paused while a TTS request or prefetch is still receiving audio data
+- **THEN** the reader and media notification remain in the paused state
+- **AND** incoming data does not change playback state to playing
+
+#### Scenario: Paused notification remains resumable
+- **WHEN** speech playback is paused from the reader or a system media control
+- **THEN** the media notification shows the paused state and provides a Play action while the media session remains available
+
+#### Scenario: Successful resume from a media control
+- **WHEN** the user requests Play from a notification or hardware media control
+- **AND** speech audio output resumes successfully
+- **THEN** the reader and media notification report playing
+- **AND** the notification does not report playing before output has resumed
+
+#### Scenario: Resume fails
+- **WHEN** the user requests Play but audio output cannot resume
+- **THEN** the reader and media notification remain paused
+- **AND** the reader presents a recoverable playback error
+
+#### Scenario: Playback is interrupted externally
+- **WHEN** the browser or operating system suspends speech output while playback is reported as playing
+- **THEN** the reader and media notification transition to paused
 
 
 
