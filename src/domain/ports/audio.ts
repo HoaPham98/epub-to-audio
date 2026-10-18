@@ -25,6 +25,8 @@ export interface IAudioStreamPlayer {
   getActiveChunkTime?(): number;
   getChunkDuration?(chapterIndex: number, chunkIndex: number): number | undefined;
   onPlaybackStateChange?(callback: (state: 'idle' | 'playing' | 'paused') => void): () => void;
+  isBufferExpired?(): boolean;
+  onBufferExpired?(callback: () => void): () => void;
   onTimeUpdate(callback: (currentTime: number) => void): () => void;
   onChunkChange(callback: (chapterIndex: number, chunkIndex: number) => void): () => void;
   onEnded(callback: () => void): () => void;

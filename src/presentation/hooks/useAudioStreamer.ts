@@ -81,6 +81,8 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   const [chunkStatuses, setChunkStatuses] = useState<Record<number, ChunkStatus>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [chunkDurations, setChunkDurations] = useState<Record<string, number>>({});
+  const [volume, setVolumeState] = useState<number>(1.0);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
 
   // Stable service singletons via useState lazy initialization (React 19 compliant)
   const [audioPlayer] = useState(() => new WebAudioStreamPlayer());
@@ -594,20 +596,28 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   // Explicit Pause Audio
   const pauseAudio = useCallback(() => {
     isPausedByUserRef.current = true;
+    setIsPlaying(false);
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'paused';
+      } catch {}
+    }
     pausedTargetChunkRef.current = {
       chapterIndex: currentChapterIndex,
       chunkIndex: currentChunkIndex,
     };
     audioPlayer.pause();
-    setIsPlaying(false);
   }, [audioPlayer, currentChapterIndex, currentChunkIndex]);
 
   // Explicit Resume Audio
   const resumeAudio = useCallback(async () => {
-    audioPlayer.init();
-    audioPlayer.ensureAudioElementPlaying?.();
     isPausedByUserRef.current = false;
     setErrorMessage(null);
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'playing';
+      } catch {}
+    }
 
     if (
       pausedTargetChunkRef.current &&
@@ -620,18 +630,19 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       return;
     }
 
-    if (audioPlayer.isPlaying()) {
-      setIsPlaying(true);
+    // Check buffer expiration/depletion
+    const isExpired = audioPlayer.isBufferExpired
+      ? audioPlayer.isBufferExpired()
+      : audioPlayer.getRemainingBufferedTime() <= 0.1;
+
+    if (isExpired) {
+      playChunk(currentChapterIndex, currentChunkIndex);
       return;
     }
 
-    if (audioPlayer.getRemainingBufferedTime() > 0) {
-      await audioPlayer.play();
-      setIsPlaying(true);
-      return;
-    }
-
-    playChunk(currentChapterIndex, currentChunkIndex);
+    // Call audioPlayer.play() directly, eliminating playerState === 'paused' deadlock
+    await audioPlayer.play();
+    setIsPlaying(true);
   }, [audioPlayer, currentChapterIndex, currentChunkIndex, playChunk]);
 
   // Play / Pause toggle
@@ -763,6 +774,38 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     onSeek: seekChapterTime,
   });
 
+  const setVolume = useCallback((newVol: number) => {
+    const clamped = Math.max(0, Math.min(1, newVol));
+    setVolumeState(clamped);
+    if (clamped > 0 && isMuted) {
+      setIsMuted(false);
+    }
+    audioPlayer.setVolume?.(clamped);
+  }, [audioPlayer, isMuted]);
+
+  const adjustVolume = useCallback((delta: number) => {
+    setVolumeState(prev => {
+      const clamped = Math.max(0, Math.min(1, Math.round((prev + delta) * 100) / 100));
+      if (clamped > 0 && isMuted) {
+        setIsMuted(false);
+      }
+      audioPlayer.setVolume?.(clamped);
+      return clamped;
+    });
+  }, [audioPlayer, isMuted]);
+
+  const toggleMute = useCallback(() => {
+    setIsMuted(prev => {
+      const next = !prev;
+      if (next) {
+        audioPlayer.setVolume?.(0);
+      } else {
+        audioPlayer.setVolume?.(volume);
+      }
+      return next;
+    });
+  }, [audioPlayer, volume]);
+
   // Contextual chunk click handler: if active chunk, toggle pause/play; otherwise play target chunk
   const handleChunkClick = useCallback(
     (chapIdx: number, chunkIdx: number) => {
@@ -778,6 +821,11 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   );
 
   return {
+    volume,
+    isMuted,
+    setVolume,
+    adjustVolume,
+    toggleMute,
     currentChapterIndex,
     currentChunkIndex,
     isPlaying,

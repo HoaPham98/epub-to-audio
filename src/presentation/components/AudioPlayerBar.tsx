@@ -39,6 +39,10 @@ interface AudioPlayerBarProps {
   onToggleAutoNext: () => void;
   speed: number;
   onChangeSpeed: (speed: number) => void;
+  volume?: number;
+  isMuted?: boolean;
+  onVolumeChange?: (volume: number) => void;
+  onToggleMute?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -70,10 +74,17 @@ export function AudioPlayerBar({
   onToggleAutoNext,
   speed,
   onChangeSpeed,
+  volume: volumeProp,
+  isMuted: isMutedProp,
+  onVolumeChange,
+  onToggleMute,
 }: AudioPlayerBarProps) {
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
+  const [localVolume, setLocalVolume] = useState(1);
+  const [localIsMuted, setLocalIsMuted] = useState(false);
+
+  const currentVolume = volumeProp !== undefined ? volumeProp : localVolume;
+  const currentIsMuted = isMutedProp !== undefined ? isMutedProp : localIsMuted;
 
   if (!book) return null;
 
@@ -82,24 +93,32 @@ export function AudioPlayerBar({
   const effectiveDuration = Math.max(duration, estimatedDuration);
 
   const handleVolumeToggle = () => {
-    const nextMuted = !isMuted;
-    setIsMuted(nextMuted);
-    const audioEl = (document.getElementById('background-audio-bridge') ||
-      document.querySelector('audio')) as HTMLAudioElement | null;
-    if (audioEl) {
-      audioEl.muted = nextMuted;
+    if (onToggleMute) {
+      onToggleMute();
+    } else {
+      const nextMuted = !localIsMuted;
+      setLocalIsMuted(nextMuted);
+      const audioEl = (document.getElementById('background-audio-bridge') ||
+        document.querySelector('audio')) as HTMLAudioElement | null;
+      if (audioEl) {
+        audioEl.muted = nextMuted;
+      }
     }
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
-    setVolume(val);
-    setIsMuted(val === 0);
-    const audioEl = (document.getElementById('background-audio-bridge') ||
-      document.querySelector('audio')) as HTMLAudioElement | null;
-    if (audioEl) {
-      audioEl.volume = val;
-      audioEl.muted = val === 0;
+    if (onVolumeChange) {
+      onVolumeChange(val);
+    } else {
+      setLocalVolume(val);
+      setLocalIsMuted(val === 0);
+      const audioEl = (document.getElementById('background-audio-bridge') ||
+        document.querySelector('audio')) as HTMLAudioElement | null;
+      if (audioEl) {
+        audioEl.volume = val;
+        audioEl.muted = val === 0;
+      }
     }
   };
 
@@ -298,7 +317,7 @@ export function AudioPlayerBar({
               onClick={handleVolumeToggle}
               className="p-1 rounded text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
             >
-              {isMuted || volume === 0 ? (
+              {currentIsMuted || currentVolume === 0 ? (
                 <VolumeX className="h-4 w-4 text-red-500" />
               ) : (
                 <Volume2 className="h-4 w-4" />
@@ -309,7 +328,7 @@ export function AudioPlayerBar({
               min={0}
               max={1}
               step={0.05}
-              value={isMuted ? 0 : volume}
+              value={currentIsMuted ? 0 : currentVolume}
               onChange={handleVolumeChange}
               className="w-16 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
             />

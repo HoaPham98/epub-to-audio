@@ -38,6 +38,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private playbackStateCallbacks: Set<(state: 'idle' | 'playing' | 'paused') => void> = new Set();
   private endedCallbacks: Set<() => void> = new Set();
   private errorCallbacks: Set<(e: Error) => void> = new Set();
+  private bufferExpiredCallbacks: Set<() => void> = new Set();
   private tickerInterval: number | null = null;
   private hasBoundVisibilityListener = false;
   private gainNode: GainNode | null = null;
@@ -275,7 +276,26 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         console.warn('Failed to resume AudioContext', err);
       }
     }
+    // Restore gain to this.volume
+    if (this.gainNode && this.audioContext) {
+      try {
+        this.gainNode.gain.setValueAtTime(this.volume, this.audioContext.currentTime);
+      } catch {
+        // ignore
+      }
+    }
     await this.ensureAudioElementPlaying();
+
+    if (this.isBufferExpired()) {
+      this.bufferExpiredCallbacks.forEach(cb => {
+        try {
+          cb();
+        } catch (e) {
+          console.warn('Error in bufferExpired callback', e);
+        }
+      });
+    }
+
     if (this.queuedItems.length > 0 && !this.isLeadInBuffered) {
       this.isLeadInBuffered = true;
       this.flushQueuedBuffers();
@@ -287,14 +307,24 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   async pause(): Promise<void> {
     this.isInternalPauseAction = true;
     this.playerState = 'paused';
+    this.pausedAtTime = this.getCurrentTime();
     this.notifyPlaybackState('paused');
     this.isCurrentlyPlaying = false;
     this.stopTicker();
+    // Soft mute via gainNode to silence audio output cleanly
+    if (this.gainNode && this.audioContext) {
+      try {
+        this.gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+      } catch {
+        // ignore
+      }
+    }
+
     // Do NOT pause this.audioElement here.
     // The background audio bridge plays pure digital silence (/silence-10s.wav).
-    // Keeping it playing preserves the active MediaSession / Windows SMTC anchor,
-    // allowing OS hardware shortcuts and volume flyout controls to resume playback.
-    // Actual speech playback is suspended via AudioContext below.
+    // Keeping it playing preserves the active MediaSession / Windows SMTC / Android notification anchor,
+    // allowing OS hardware shortcuts and notification controls to stay active without shade collapse.
+    // Actual speech playback is suspended via AudioContext.
     if (this.audioContext && this.audioContext.state === 'running') {
       try {
         await this.audioContext.suspend();
@@ -365,7 +395,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   getCurrentTime(): number {
-    if (!this.audioContext || this.playbackStartTime === 0) {
+    if (this.playerState === 'paused' || !this.audioContext || this.playbackStartTime === 0) {
       return this.pausedAtTime;
     }
     const elapsed = (this.audioContext.currentTime - this.playbackStartTime) * this.playbackSpeed;
@@ -387,6 +417,22 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   getRemainingBufferedTime(): number {
     if (!this.audioContext) return 0;
     return Math.max(0, (this.nextStartTime - this.audioContext.currentTime) * this.playbackSpeed);
+  }
+
+  isBufferExpired(): boolean {
+    if (!this.audioContext) return true;
+    if (this.nextStartTime <= this.audioContext.currentTime) {
+      return true;
+    }
+    if (this.activeSourceNodes.length === 0 && this.queuedItems.length === 0) {
+      return true;
+    }
+    return false;
+  }
+
+  onBufferExpired(callback: () => void): () => void {
+    this.bufferExpiredCallbacks.add(callback);
+    return () => this.bufferExpiredCallbacks.delete(callback);
   }
 
   isPlaying(): boolean {

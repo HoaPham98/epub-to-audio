@@ -7,7 +7,7 @@ import { Reader } from '@/presentation/components';
 import { AudioPlayerBar } from '@/presentation/components';
 import { SettingsModal } from '@/presentation/components';
 import { CacheModal } from '@/presentation/components';
-import { useAudioStreamer } from '@/presentation/hooks';
+import { useAudioStreamer, useDesktopShortcuts } from '@/presentation/hooks';
 import { EpubBook, TTSSettings } from '@/domain';
 import {
   ManageAudioCacheUseCase,
@@ -146,6 +146,16 @@ export default function Home() {
     onOpenSettings: () => setIsSettingsOpen(true),
   });
 
+  useDesktopShortcuts({
+    isEnabled: !!book,
+    onTogglePlayPause: audioPlayer.togglePlayPause,
+    onSeekRelative: audioPlayer.skipRelative,
+    onVolumeChange: audioPlayer.adjustVolume,
+    onToggleMute: audioPlayer.toggleMute,
+    onPrevChapter: audioPlayer.prevChapter,
+    onNextChapter: audioPlayer.nextChapter,
+  });
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f5fa] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
       {/* 1. Left: Full-Height Sidebar (from top to bottom of screen) */}
@@ -222,6 +232,10 @@ export default function Home() {
               const updated = { ...settings, speed };
               handleSaveSettings(updated);
             }}
+            volume={audioPlayer.volume}
+            isMuted={audioPlayer.isMuted}
+            onVolumeChange={audioPlayer.setVolume}
+            onToggleMute={audioPlayer.toggleMute}
           />
         )}
       </div>
