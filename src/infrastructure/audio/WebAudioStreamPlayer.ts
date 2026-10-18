@@ -154,7 +154,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   async ensureAudioElementPlaying(): Promise<void> {
     if (typeof window === 'undefined') return;
     await this.init();
-    if (this.audioElement && this.audioElement.paused && this.playerState !== 'paused') {
+    if (this.audioElement && this.audioElement.paused) {
       try {
         await this.audioElement.play();
       } catch (err) {
@@ -330,6 +330,16 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         await this.audioContext.suspend();
       } catch (err) {
         console.warn('Failed to suspend AudioContext', err);
+      }
+    }
+
+    // Ensure the background audio bridge remains playing so Android Chrome
+    // retains the foreground media notification anchor instead of collapsing the drawer.
+    if (this.audioElement && this.audioElement.paused) {
+      try {
+        await this.audioElement.play();
+      } catch (err) {
+        console.warn('AudioElement play deferred during pause:', err);
       }
     }
     this.isInternalPauseAction = false;
