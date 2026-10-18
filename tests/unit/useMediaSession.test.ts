@@ -85,4 +85,72 @@ describe('useMediaSession Hook', () => {
     );
     expect(navigator.mediaSession.playbackState).toBe('paused');
   });
+
+  it('dispatches play and pause actions without optimistic state writes, updating playbackState only after confirmed events', () => {
+    const onPlaySpy = vi.fn();
+    const onPauseSpy = vi.fn();
+
+    const { rerender } = renderHook(
+      (props: { isPlaying: boolean }) =>
+        useMediaSession({
+          book: mockBook,
+          currentChapterIndex: 0,
+          currentChunkIndex: 0,
+          isPlaying: props.isPlaying,
+          currentTime: 10,
+          duration: 100,
+          playbackSpeed: 1.0,
+          onPlay: onPlaySpy,
+          onPause: onPauseSpy,
+          onPrevChunk: vi.fn(),
+          onNextChunk: vi.fn(),
+          onSkipRelative: vi.fn(),
+        }),
+      {
+        initialProps: { isPlaying: false },
+      }
+    );
+
+    // Initial state is paused
+    expect(navigator.mediaSession.playbackState).toBe('paused');
+
+    // Find the registered 'play' action handler
+    const playCall = mockSetActionHandler.mock.calls.find(call => call[0] === 'play');
+    expect(playCall).toBeDefined();
+    const playHandler = playCall![1];
+
+    // Trigger the play handler
+    act(() => {
+      playHandler();
+    });
+
+    // onPlay callback dispatched
+    expect(onPlaySpy).toHaveBeenCalledTimes(1);
+
+    // CRITICAL: playbackState must NOT have been optimistically set to 'playing'
+    expect(navigator.mediaSession.playbackState).toBe('paused');
+
+    // State only transitions after confirmed player event updates isPlaying prop
+    rerender({ isPlaying: true });
+    expect(navigator.mediaSession.playbackState).toBe('playing');
+
+    // Find the registered 'pause' action handler
+    const pauseCall = mockSetActionHandler.mock.calls.find(call => call[0] === 'pause');
+    expect(pauseCall).toBeDefined();
+    const pauseHandler = pauseCall![1];
+
+    // Trigger the pause handler
+    act(() => {
+      pauseHandler();
+    });
+
+    expect(onPauseSpy).toHaveBeenCalledTimes(1);
+
+    // CRITICAL: playbackState must NOT have been optimistically set to 'paused'
+    expect(navigator.mediaSession.playbackState).toBe('playing');
+
+    // State only transitions after confirmed player event updates isPlaying prop
+    rerender({ isPlaying: false });
+    expect(navigator.mediaSession.playbackState).toBe('paused');
+  });
 });

@@ -64,6 +64,17 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.audioContext = new AudioCtx();
+      if (typeof this.audioContext.addEventListener === 'function') {
+        this.audioContext.addEventListener('statechange', () => {
+          if (
+            this.playerState === 'playing' &&
+            !this.isInternalPauseAction &&
+            (this.audioContext?.state === 'suspended' || (this.audioContext?.state as string) === 'interrupted')
+          ) {
+            this.pause().catch(() => {});
+          }
+        });
+      }
     }
 
     // Configure W3C AudioSession if available (e.g. iOS Safari 16.4+)
@@ -147,7 +158,11 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
 
     // Strict suspension lock: if player is paused, do NOT resume audioContext
     if (this.playerState !== 'paused' && this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
+      try {
+        await this.audioContext.resume();
+      } catch (err) {
+        console.warn('AudioContext resume in init was deferred or rejected:', err);
+      }
     }
   }
 
@@ -266,14 +281,18 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   async play(): Promise<void> {
-    this.playerState = 'playing';
-    this.notifyPlaybackState('playing');
     await this.init();
     if (this.audioContext && this.audioContext.state === 'suspended') {
       try {
         await this.audioContext.resume();
       } catch (err) {
         console.warn('Failed to resume AudioContext', err);
+        this.playerState = 'paused';
+        this.isCurrentlyPlaying = false;
+        const resumeError =
+          err instanceof Error ? err : new Error('Failed to resume audio output');
+        this.errorCallbacks.forEach(cb => cb(resumeError));
+        throw resumeError;
       }
     }
     // Restore gain to this.volume
@@ -300,15 +319,16 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.isLeadInBuffered = true;
       this.flushQueuedBuffers();
     }
+    this.playerState = 'playing';
     this.isCurrentlyPlaying = true;
     this.startTicker();
+    this.notifyPlaybackState('playing');
   }
 
   async pause(): Promise<void> {
     this.isInternalPauseAction = true;
     this.playerState = 'paused';
     this.pausedAtTime = this.getCurrentTime();
-    this.notifyPlaybackState('paused');
     this.isCurrentlyPlaying = false;
     this.stopTicker();
     // Soft mute via gainNode to silence audio output cleanly
@@ -320,11 +340,6 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       }
     }
 
-    // Do NOT pause this.audioElement here.
-    // The background audio bridge plays pure digital silence (/silence-10s.wav).
-    // Keeping it playing preserves the active MediaSession / Windows SMTC / Android notification anchor,
-    // allowing OS hardware shortcuts and notification controls to stay active without shade collapse.
-    // Actual speech playback is suspended via AudioContext.
     if (this.audioContext && this.audioContext.state === 'running') {
       try {
         await this.audioContext.suspend();
@@ -333,16 +348,17 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       }
     }
 
-    // Ensure the background audio bridge remains playing so Android Chrome
-    // retains the foreground media notification anchor instead of collapsing the drawer.
-    if (this.audioElement && this.audioElement.paused) {
+    // Align bridge lifecycle with speech playback: pause audioElement
+    if (this.audioElement && !this.audioElement.paused) {
       try {
-        await this.audioElement.play();
+        this.audioElement.pause();
       } catch (err) {
-        console.warn('AudioElement play deferred during pause:', err);
+        console.warn('Failed to pause AudioElement bridge:', err);
       }
     }
+
     this.isInternalPauseAction = false;
+    this.notifyPlaybackState('paused');
   }
 
   stop(pauseBridge = true): void {

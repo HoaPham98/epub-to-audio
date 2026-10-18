@@ -132,18 +132,12 @@ export function useMediaSession({
       [
         'play',
         () => {
-          try {
-            navigator.mediaSession.playbackState = 'playing';
-          } catch {}
           callbacksRef.current.onPlay();
         },
       ],
       [
         'pause',
         () => {
-          try {
-            navigator.mediaSession.playbackState = 'paused';
-          } catch {}
           callbacksRef.current.onPause();
         },
       ],

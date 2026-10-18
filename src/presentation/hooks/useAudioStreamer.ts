@@ -597,11 +597,6 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
   const pauseAudio = useCallback(() => {
     isPausedByUserRef.current = true;
     setIsPlaying(false);
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.playbackState = 'paused';
-      } catch {}
-    }
     pausedTargetChunkRef.current = {
       chapterIndex: currentChapterIndex,
       chunkIndex: currentChunkIndex,
@@ -611,13 +606,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
 
   // Explicit Resume Audio
   const resumeAudio = useCallback(async () => {
-    isPausedByUserRef.current = false;
     setErrorMessage(null);
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.playbackState = 'playing';
-      } catch {}
-    }
 
     if (
       pausedTargetChunkRef.current &&
@@ -626,6 +615,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
     ) {
       const target = pausedTargetChunkRef.current;
       pausedTargetChunkRef.current = null;
+      isPausedByUserRef.current = false;
       playChunk(target.chapterIndex, target.chunkIndex);
       return;
     }
@@ -636,13 +626,22 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
       : audioPlayer.getRemainingBufferedTime() <= 0.1;
 
     if (isExpired) {
+      isPausedByUserRef.current = false;
       playChunk(currentChapterIndex, currentChunkIndex);
       return;
     }
 
-    // Call audioPlayer.play() directly, eliminating playerState === 'paused' deadlock
-    await audioPlayer.play();
-    setIsPlaying(true);
+    try {
+      await audioPlayer.play();
+      isPausedByUserRef.current = false;
+      setIsPlaying(true);
+    } catch (err: unknown) {
+      console.warn('Resume audio failed:', err);
+      isPausedByUserRef.current = true;
+      setIsPlaying(false);
+      const msg = err instanceof Error ? err.message : 'Không thể tiếp tục phát âm thanh';
+      setErrorMessage(msg);
+    }
   }, [audioPlayer, currentChapterIndex, currentChunkIndex, playChunk]);
 
   // Play / Pause toggle
