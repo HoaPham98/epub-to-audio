@@ -6,6 +6,13 @@ export const DEFAULT_OPTIMAL_MIN_CHARS = 150;
 export const DEFAULT_OPTIMAL_MAX_CHARS = 250;
 export const DEFAULT_SAFE_MAX_CHARS = 350;
 
+const HAS_ALPHANUMERIC = /[\p{L}\p{N}]/u;
+
+interface UnitWithMeta {
+  text: string;
+  isParagraphEnd: boolean;
+}
+
 export class SentenceBoundaryChunker implements ITextChunkerService {
   chunkText(
     chapterIndex: number,
@@ -22,18 +29,21 @@ export class SentenceBoundaryChunker implements ITextChunkerService {
       .replace(/[ \t]+/g, ' ')
       .trim();
 
-    if (!cleanText) {
+    if (!cleanText || !HAS_ALPHANUMERIC.test(cleanText)) {
       return [];
     }
 
-    // 1. Split text into paragraphs by newline boundaries (\n+)
+    // 1. Split text into paragraphs by newline boundaries (\n+) and filter out non-speech paragraphs
     const rawParagraphs = cleanText
       .split(/\n+/)
       .map(p => p.trim())
-      .filter(p => p.length > 0);
+      .filter(p => p.length > 0 && HAS_ALPHANUMERIC.test(p));
 
-    const chunks: TextChunk[] = [];
-    let chunkIdx = 0;
+    if (rawParagraphs.length === 0) {
+      return [];
+    }
+
+    const allUnits: UnitWithMeta[] = [];
 
     for (const paragraph of rawParagraphs) {
       // 2. Break paragraph into sentences using terminators (. ? ! … and optional quotes)
@@ -42,7 +52,7 @@ export class SentenceBoundaryChunker implements ITextChunkerService {
 
       for (const rawSentence of rawSentences) {
         const sentence = rawSentence.trim();
-        if (!sentence) continue;
+        if (!sentence || !HAS_ALPHANUMERIC.test(sentence)) continue;
 
         if (sentence.length <= maxChars) {
           atomicUnits.push(sentence);
@@ -51,7 +61,7 @@ export class SentenceBoundaryChunker implements ITextChunkerService {
           const rawClauses = sentence.match(/[^,;:—\n]+(?:[,;:—]+["'”’]?|$)/g) || [sentence];
           for (const rawClause of rawClauses) {
             const clause = rawClause.trim();
-            if (!clause) continue;
+            if (!clause || !HAS_ALPHANUMERIC.test(clause)) continue;
 
             if (clause.length <= maxChars) {
               atomicUnits.push(clause);
@@ -62,7 +72,7 @@ export class SentenceBoundaryChunker implements ITextChunkerService {
               for (const word of words) {
                 const candidate = wordAcc ? `${wordAcc} ${word}` : word;
                 if (candidate.length > maxChars) {
-                  if (wordAcc.trim()) {
+                  if (wordAcc.trim() && HAS_ALPHANUMERIC.test(wordAcc)) {
                     atomicUnits.push(wordAcc.trim());
                   }
                   wordAcc = word;
@@ -70,7 +80,7 @@ export class SentenceBoundaryChunker implements ITextChunkerService {
                   wordAcc = candidate;
                 }
               }
-              if (wordAcc.trim()) {
+              if (wordAcc.trim() && HAS_ALPHANUMERIC.test(wordAcc)) {
                 atomicUnits.push(wordAcc.trim());
               }
             }
@@ -80,7 +90,7 @@ export class SentenceBoundaryChunker implements ITextChunkerService {
 
       if (atomicUnits.length === 0) continue;
 
-      // 3. Merge ultra-short sentences (< minChars, e.g. 20 chars like "Vâng.", "Thật sao?")
+      // 3. Merge ultra-short sentences (< minChars, e.g. 20 chars like "Vâng.", "Thật sao?") within paragraph
       let processedUnits: string[] = [];
       if (mergeShort && atomicUnits.length > 1) {
         for (let i = 0; i < atomicUnits.length; i++) {
@@ -106,52 +116,117 @@ export class SentenceBoundaryChunker implements ITextChunkerService {
         processedUnits = atomicUnits;
       }
 
-      // 4. Assemble paragraph units into chunks targeting optimal length (150-250 chars)
-      const paragraphChunks: string[] = [];
-      let currentChunk = '';
+      for (let i = 0; i < processedUnits.length; i++) {
+        allUnits.push({
+          text: processedUnits[i],
+          isParagraphEnd: i === processedUnits.length - 1,
+        });
+      }
+    }
 
-      for (const unit of processedUnits) {
-        if (!currentChunk) {
-          currentChunk = unit;
-          continue;
-        }
+    if (allUnits.length === 0) {
+      return [];
+    }
 
-        const candidate = `${currentChunk} ${unit}`;
-        if (candidate.length <= maxChars) {
-          currentChunk = candidate;
-        } else {
-          paragraphChunks.push(currentChunk.trim());
-          currentChunk = unit;
-        }
+    // 4. Assemble units into optimal chunks (150-250 chars) with cross-paragraph accumulation
+    const chunks: TextChunk[] = [];
+    let chunkIdx = 0;
+    let currentChunkText = '';
+    let currentChunkEndsParagraph = false;
+
+    for (const unit of allUnits) {
+      if (!currentChunkText) {
+        currentChunkText = unit.text;
+        currentChunkEndsParagraph = unit.isParagraphEnd;
+        continue;
       }
 
-      if (currentChunk.trim()) {
-        // If trailing chunk in paragraph is ultra-short, merge into previous chunk if within safeMaxChars
-        if (
-          mergeShort &&
-          paragraphChunks.length > 0 &&
-          currentChunk.trim().length < minChars &&
-          (paragraphChunks[paragraphChunks.length - 1] + ' ' + currentChunk.trim()).length <= safeMaxChars
-        ) {
-          paragraphChunks[paragraphChunks.length - 1] = `${paragraphChunks[paragraphChunks.length - 1]} ${currentChunk.trim()}`;
-        } else {
-          paragraphChunks.push(currentChunk.trim());
-        }
-      }
-
-      // 5. Append to overall chunks, tagging isParagraphEnd on the last chunk of the paragraph
-      for (let i = 0; i < paragraphChunks.length; i++) {
-        const text = paragraphChunks[i];
-        const isParagraphEnd = i === paragraphChunks.length - 1;
-
+      // If current chunk ended at a paragraph boundary and already reached optimal min length (>= 150 chars),
+      // respect paragraph boundary and close chunk.
+      if (currentChunkEndsParagraph && currentChunkText.length >= DEFAULT_OPTIMAL_MIN_CHARS) {
         chunks.push({
           id: `ch-${chapterIndex}-ck-${chunkIdx}`,
           index: chunkIdx,
-          text,
-          charCount: text.length,
-          isParagraphEnd,
+          text: currentChunkText.trim(),
+          charCount: currentChunkText.trim().length,
+          isParagraphEnd: true,
         });
         chunkIdx++;
+        currentChunkText = unit.text;
+        currentChunkEndsParagraph = unit.isParagraphEnd;
+        continue;
+      }
+
+      // If mergeShort is false and we hit a paragraph end, do not accumulate across paragraphs
+      if (!mergeShort && currentChunkEndsParagraph) {
+        chunks.push({
+          id: `ch-${chapterIndex}-ck-${chunkIdx}`,
+          index: chunkIdx,
+          text: currentChunkText.trim(),
+          charCount: currentChunkText.trim().length,
+          isParagraphEnd: true,
+        });
+        chunkIdx++;
+        currentChunkText = unit.text;
+        currentChunkEndsParagraph = unit.isParagraphEnd;
+        continue;
+      }
+
+      const separator = currentChunkEndsParagraph ? '\n' : ' ';
+      const candidate = `${currentChunkText}${separator}${unit.text}`;
+
+      // Check if candidate fits within maxChars, or safeMaxChars if current chunk is ultra-short
+      const fitsInMax = candidate.length <= maxChars;
+      const fitsInSafe = mergeShort && currentChunkText.length < minChars && candidate.length <= safeMaxChars;
+
+      if (fitsInMax || fitsInSafe) {
+        currentChunkText = candidate;
+        currentChunkEndsParagraph = unit.isParagraphEnd;
+      } else {
+        chunks.push({
+          id: `ch-${chapterIndex}-ck-${chunkIdx}`,
+          index: chunkIdx,
+          text: currentChunkText.trim(),
+          charCount: currentChunkText.trim().length,
+          isParagraphEnd: currentChunkEndsParagraph,
+        });
+        chunkIdx++;
+        currentChunkText = unit.text;
+        currentChunkEndsParagraph = unit.isParagraphEnd;
+      }
+    }
+
+    if (currentChunkText.trim()) {
+      // If trailing chunk is ultra-short, attempt to merge into previous chunk if within safeMaxChars
+      if (
+        mergeShort &&
+        chunks.length > 0 &&
+        currentChunkText.trim().length < minChars
+      ) {
+        const prevChunk = chunks[chunks.length - 1];
+        const separator = prevChunk.isParagraphEnd ? '\n' : ' ';
+        const combined = `${prevChunk.text}${separator}${currentChunkText.trim()}`;
+        if (combined.length <= safeMaxChars) {
+          prevChunk.text = combined;
+          prevChunk.charCount = combined.length;
+          prevChunk.isParagraphEnd = currentChunkEndsParagraph;
+        } else {
+          chunks.push({
+            id: `ch-${chapterIndex}-ck-${chunkIdx}`,
+            index: chunkIdx,
+            text: currentChunkText.trim(),
+            charCount: currentChunkText.trim().length,
+            isParagraphEnd: currentChunkEndsParagraph,
+          });
+        }
+      } else {
+        chunks.push({
+          id: `ch-${chapterIndex}-ck-${chunkIdx}`,
+          index: chunkIdx,
+          text: currentChunkText.trim(),
+          charCount: currentChunkText.trim().length,
+          isParagraphEnd: currentChunkEndsParagraph,
+        });
       }
     }
 

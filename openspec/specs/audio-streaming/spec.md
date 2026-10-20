@@ -7,7 +7,7 @@ Enables low-latency real-time audio playback using Web Audio API streaming from 
 ## Requirements
 
 ### Requirement: Low-Latency SSE Audio Streaming
-The system SHALL ingest audio chunks streamed via Server-Sent Events (SSE) from the TTS endpoint (`POST /v1/audio/speech` with `stream_format=sse` and `response_format=pcm`) and dispatch audio deltas immediately to the playback pipeline.
+The system SHALL ingest audio chunks streamed via Server-Sent Events (SSE) from the TTS endpoint (`POST /v1/audio/speech` with `stream_format=sse` and `response_format=pcm`) and dispatch audio deltas immediately to the playback pipeline, without enforcing low character limits (`max_chars`) that cause server-side phoneme re-segmentation and repetition.
 
 #### Scenario: Successful SSE stream ingestion
 - **WHEN** the user initiates playback for a text chunk
@@ -17,6 +17,11 @@ The system SHALL ingest audio chunks streamed via Server-Sent Events (SSE) from 
 #### Scenario: Stream completion
 - **WHEN** the server sends `speech.audio.done`
 - **THEN** the system marks the streaming phase complete and triggers cache persistence
+
+#### Scenario: Prevention of redundant server-side chunk splitting
+- **WHEN** a client-side chunk is dispatched for streaming synthesis
+- **THEN** the client does NOT pass a restrictive `max_chars` threshold (e.g. 200) in the request body
+- **AND** the server relies on the client's semantic chunk boundaries without splitting phonemized text mid-sentence or repeating phrases
 
 ### Requirement: Pre-Buffered Web Audio Playback
 The system SHALL use Web Audio API (`AudioContext`) with a configurable 150–300ms lead-in buffer (300ms for CPU backends) to schedule PCM s16le audio playback smoothly without network jitter stalls, and support non-destructive suspend/resume state on pause with a strict audio output suspension lock.
@@ -353,6 +358,3 @@ The system SHALL insert configurable silence padding when scheduling and concate
 #### Scenario: Paragraph boundary silence padding
 - **WHEN** subsequent chunks cross a paragraph break
 - **THEN** the audio player schedules a 400ms–600ms silence gap to provide a natural cadence break
-
-
-

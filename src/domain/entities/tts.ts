@@ -14,7 +14,7 @@ export interface TTSSettings {
   topK?: number; // 1 - 1024
   topP?: number; // 0.0 - 1.0
   repetitionPenalty?: number; // 1.0 - 2.0
-  maxChars?: number; // 64 - 512, default 256
+  maxChars?: number; // 256 - 512, default 512
 }
 
 export interface VoiceOption {

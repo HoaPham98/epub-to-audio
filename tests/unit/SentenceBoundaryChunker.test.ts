@@ -19,14 +19,47 @@ describe('SentenceBoundaryChunker', () => {
     expect(chunks[0].charCount).toBe(text.length);
   });
 
-  it('splits paragraphs by newline boundaries and marks isParagraphEnd correctly', () => {
-    const text = 'Đoạn văn thứ nhất có nội dung vừa phải.\n\nĐoạn văn thứ hai cũng có một câu ngắn.';
-    const chunks = chunker.chunkText(0, text);
+  it('splits paragraphs by newline boundaries when each is sufficiently long', () => {
+    const p1 =
+      'Đoạn văn thứ nhất có nội dung vừa phải và đầy đủ ý tứ miêu tả chi tiết khung cảnh buổi sớm tinh mơ ở vùng ngoại ô yên bình, nơi những giọt sương mai còn long lanh trên cành lá non.';
+    const p2 =
+      'Đoạn văn thứ hai tiếp nối mạch truyện với không khí nhộn nhịp dần lên của phiên chợ sớm bên bờ sông, từng tốp thuyền buôn tấp nập cập bến mang theo đầy ắp tôm cá tươi ngon.';
+    const chunks = chunker.chunkText(0, `${p1}\n\n${p2}`);
 
     expect(chunks.length).toBe(2);
-    expect(chunks[0].text).toBe('Đoạn văn thứ nhất có nội dung vừa phải.');
+    expect(chunks[0].text).toBe(p1);
     expect(chunks[0].isParagraphEnd).toBe(true);
-    expect(chunks[1].text).toBe('Đoạn văn thứ hai cũng có một câu ngắn.');
+    expect(chunks[1].text).toBe(p2);
+    expect(chunks[1].isParagraphEnd).toBe(true);
+  });
+
+  it('filters out non-speech punctuation lines and scene breaks', () => {
+    const text = 'Hắn nhìn về phía chân trời xa xăm.\n\n...\n\n. . .\n\n* * *\n\n---\n\nBóng chiều đã buông xuống thung lũng.';
+    const chunks = chunker.chunkText(0, text);
+
+    expect(chunks.length).toBe(1);
+    expect(chunks[0].text).not.toContain('* * *');
+    expect(chunks[0].text).not.toContain('---');
+    expect(chunks[0].text).toBe('Hắn nhìn về phía chân trời xa xăm.\nBóng chiều đã buông xuống thung lũng.');
+  });
+
+  it('accumulates short dialogue lines across paragraphs into optimal chunks', () => {
+    const dialogue = '- Cậu đến rồi à?\n\n- Ừ, vừa mới tới thôi.\n\n- Mau vào nhà đi, ngoài trời đang lạnh lắm.';
+    const chunks = chunker.chunkText(0, dialogue);
+
+    expect(chunks.length).toBe(1);
+    expect(chunks[0].text).toBe('- Cậu đến rồi à?\n- Ừ, vừa mới tới thôi.\n- Mau vào nhà đi, ngoài trời đang lạnh lắm.');
+    expect(chunks[0].isParagraphEnd).toBe(true);
+  });
+
+  it('does not accumulate across paragraphs when mergeShortSentences is false', () => {
+    const dialogue = '- Cậu đến rồi à?\n\n- Ừ, vừa mới tới thôi.';
+    const chunks = chunker.chunkText(0, dialogue, { mergeShortSentences: false });
+
+    expect(chunks.length).toBe(2);
+    expect(chunks[0].text).toBe('- Cậu đến rồi à?');
+    expect(chunks[0].isParagraphEnd).toBe(true);
+    expect(chunks[1].text).toBe('- Ừ, vừa mới tới thôi.');
     expect(chunks[1].isParagraphEnd).toBe(true);
   });
 

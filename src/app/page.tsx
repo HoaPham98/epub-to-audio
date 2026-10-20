@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS: TTSSettings = {
   speed: 1.0,
   useProxy: false,
   enablePrefetch: true,
-  maxChars: 256,
+  maxChars: 512,
   temperature: 0.8,
   topK: 25,
   topP: 0.95,

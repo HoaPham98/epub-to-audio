@@ -50,7 +50,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     ...settings,
     responseFormat: settings.responseFormat || 'wav',
     sampleRate: settings.sampleRate || 24000,
-    maxChars: settings.maxChars || 200,
+    maxChars: settings.maxChars || 512,
     temperature: settings.temperature ?? 0.8,
     topK: settings.topK ?? 25,
     topP: settings.topP ?? 0.95,
@@ -504,23 +504,23 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="font-semibold text-zinc-700 dark:text-zinc-300">
-                      Kích thước chunk tối đa (max_chars)
+                      Ngưỡng an toàn server (max_chars)
                     </label>
                     <span className="font-mono text-indigo-600 font-medium">
-                      {formData.maxChars ?? 200} ký tự
+                      {formData.maxChars ?? 512} ký tự
                     </span>
                   </div>
                   <input
                     type="range"
-                    min={150}
-                    max={350}
-                    step={10}
-                    value={formData.maxChars ?? 200}
+                    min={256}
+                    max={512}
+                    step={16}
+                    value={formData.maxChars ?? 512}
                     onChange={e => setFormData({ ...formData, maxChars: parseInt(e.target.value, 10) })}
                     className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                   />
                   <p className="text-[11px] text-zinc-400 mt-0.5">
-                    Khuyến nghị VieNeu v3 Turbo: 150–250 ký tự (chuẩn: 200 ký tự ~30–50 từ), tối đa 350 ký tự để giữ ngữ điệu tự nhiên và tránh vỡ frame budget.
+                    Ngưỡng trần bảo vệ server (khuyến nghị 512). Frontend đã tự động phân đoạn câu ngữ nghĩa 150–250 ký tự; để giá trị cao giúp server không cắt đôi các chunk câu.
                   </p>
                 </div>
 
