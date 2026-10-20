@@ -18,6 +18,7 @@ export interface StreamAndPlayParams {
     bookId: string;
     chapterIndex: number;
     chunkIndex: number;
+    isParagraphEnd?: boolean;
   };
   append?: boolean;
   signal?: AbortSignal;
@@ -50,7 +51,11 @@ export class StreamAndPlayChunkUseCase {
     } = params;
 
     const meta: ChunkMeta | undefined = cacheInfo
-      ? { chapterIndex: cacheInfo.chapterIndex, chunkIndex: cacheInfo.chunkIndex }
+      ? {
+          chapterIndex: cacheInfo.chapterIndex,
+          chunkIndex: cacheInfo.chunkIndex,
+          isParagraphEnd: cacheInfo.isParagraphEnd,
+        }
       : undefined;
 
     let cacheKey = '';

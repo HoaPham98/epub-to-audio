@@ -5,6 +5,7 @@ interface ChunkBoundary {
   chunkIndex: number;
   startTime: number;
   endTime: number;
+  isParagraphEnd?: boolean;
 }
 
 interface QueuedItem {
@@ -32,6 +33,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private chunkBoundaries: ChunkBoundary[] = [];
   private currentActiveChapterIndex: number | null = null;
   private currentActiveChunkIndex: number | null = null;
+  private lastScheduledMeta: ChunkMeta | null = null;
 
   private timeUpdateCallbacks: Set<(t: number) => void> = new Set();
   private chunkChangeCallbacks: Set<(chapterIndex: number, chunkIndex: number) => void> = new Set();
@@ -226,6 +228,24 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       }
     }
 
+    // Natural silence padding between different chunks (inter-sentence 250ms, inter-paragraph 500ms)
+    if (meta) {
+      const isNewChunk =
+        !this.lastScheduledMeta ||
+        this.lastScheduledMeta.chapterIndex !== meta.chapterIndex ||
+        this.lastScheduledMeta.chunkIndex !== meta.chunkIndex;
+
+      if (isNewChunk && this.lastScheduledMeta && this.playbackStartTime > 0) {
+        if (this.nextStartTime >= now) {
+          const isParagraph = !!this.lastScheduledMeta.isParagraphEnd;
+          const silenceDuration = (isParagraph ? 0.5 : 0.25) / this.playbackSpeed;
+          this.nextStartTime += silenceDuration;
+          this.totalQueuedDuration += silenceDuration;
+        }
+      }
+      this.lastScheduledMeta = { ...meta };
+    }
+
     const scheduledStart = this.nextStartTime;
     const durationScaled = buffer.duration / this.playbackSpeed;
     const scheduledEnd = scheduledStart + durationScaled;
@@ -240,12 +260,16 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       );
       if (existing) {
         existing.endTime = Math.max(existing.endTime, scheduledEnd);
+        if (meta.isParagraphEnd !== undefined) {
+          existing.isParagraphEnd = meta.isParagraphEnd;
+        }
       } else {
         this.chunkBoundaries.push({
           chapterIndex: meta.chapterIndex,
           chunkIndex: meta.chunkIndex,
           startTime: scheduledStart,
           endTime: scheduledEnd,
+          isParagraphEnd: meta.isParagraphEnd,
         });
       }
     }
@@ -383,6 +407,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.chunkBoundaries = [];
     this.currentActiveChapterIndex = null;
     this.currentActiveChunkIndex = null;
+    this.lastScheduledMeta = null;
     if (this.audioContext && this.audioContext.state === 'suspended') {
       this.audioContext.resume().catch(() => {});
     }
@@ -473,6 +498,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.queuedItems = [];
     this.accumulatedLeadInSeconds = 0;
     this.isLeadInBuffered = false;
+    this.lastScheduledMeta = null;
   }
 
   async playCachedBlob(
@@ -537,9 +563,11 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       return 0;
     }
     const now = this.audioContext.currentTime;
-    const activeBoundary = this.chunkBoundaries.find(
-      b => now >= b.startTime && now < b.endTime
-    );
+    const activeBoundary = this.chunkBoundaries.find((b, idx) => {
+      const nextB = this.chunkBoundaries[idx + 1];
+      const effectiveEnd = nextB ? nextB.startTime : b.endTime;
+      return now >= b.startTime && now < effectiveEnd;
+    });
     if (activeBoundary) {
       return Math.max(0, (now - activeBoundary.startTime) * this.playbackSpeed);
     }
@@ -578,9 +606,11 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       // Boundary check for synchronized chunk highlight
       if (this.audioContext && this.chunkBoundaries.length > 0) {
         const now = this.audioContext.currentTime;
-        const activeBoundary = this.chunkBoundaries.find(
-          b => now >= b.startTime && now < b.endTime
-        );
+        const activeBoundary = this.chunkBoundaries.find((b, idx) => {
+          const nextB = this.chunkBoundaries[idx + 1];
+          const effectiveEnd = nextB ? nextB.startTime : b.endTime;
+          return now >= b.startTime && now < effectiveEnd;
+        });
         if (
           activeBoundary &&
           (activeBoundary.chapterIndex !== this.currentActiveChapterIndex ||

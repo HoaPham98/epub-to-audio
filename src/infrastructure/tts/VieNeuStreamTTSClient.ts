@@ -27,7 +27,7 @@ export class VieNeuStreamTTSClient implements ITTSStreamingService {
       response_format: 'pcm',
       stream_format: 'sse',
       sample_rate: sampleRate,
-      max_chars: settings.maxChars || 256,
+      max_chars: settings.maxChars || 200,
       ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
       ...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
       ...(settings.topP !== undefined ? { top_p: settings.topP } : {}),

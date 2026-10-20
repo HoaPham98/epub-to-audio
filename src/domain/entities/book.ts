@@ -3,6 +3,7 @@ export interface TextChunk {
   index: number;
   text: string;
   charCount: number;
+  isParagraphEnd?: boolean;
 }
 
 export interface EpubChapter {

@@ -50,7 +50,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     ...settings,
     responseFormat: settings.responseFormat || 'wav',
     sampleRate: settings.sampleRate || 24000,
-    maxChars: settings.maxChars || 256,
+    maxChars: settings.maxChars || 200,
     temperature: settings.temperature ?? 0.8,
     topK: settings.topK ?? 25,
     topP: settings.topP ?? 0.95,
@@ -507,19 +507,21 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                       Kích thước chunk tối đa (max_chars)
                     </label>
                     <span className="font-mono text-indigo-600 font-medium">
-                      {formData.maxChars ?? 256} ký tự
+                      {formData.maxChars ?? 200} ký tự
                     </span>
                   </div>
                   <input
                     type="range"
-                    min={64}
-                    max={512}
-                    step={16}
-                    value={formData.maxChars ?? 256}
+                    min={150}
+                    max={350}
+                    step={10}
+                    value={formData.maxChars ?? 200}
                     onChange={e => setFormData({ ...formData, maxChars: parseInt(e.target.value, 10) })}
                     className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                   />
-                  <p className="text-[11px] text-zinc-400 mt-0.5">Khuyến nghị: 200–256 ký tự để đạt độ trễ TTFA ~105ms.</p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Khuyến nghị VieNeu v3 Turbo: 150–250 ký tự (chuẩn: 200 ký tự ~30–50 từ), tối đa 350 ký tự để giữ ngữ điệu tự nhiên và tránh vỡ frame budget.
+                  </p>
                 </div>
 
                 {/* Temperature */}

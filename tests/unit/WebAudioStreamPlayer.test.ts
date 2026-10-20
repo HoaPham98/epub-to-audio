@@ -290,5 +290,98 @@ describe('WebAudioStreamPlayer Background Audio Bridge & Pause Behavior', () => 
     expect(stateChangeSpy).not.toHaveBeenCalled();
     expect(player.getPlayerState()).toBe('paused');
   });
+
+  describe('Natural Silence Padding', () => {
+    it('schedules 250ms silence between consecutive sentence chunks within the same paragraph', async () => {
+      await player.init();
+      const startedTimes: number[] = [];
+      mockAudioContext.createBufferSource = vi.fn().mockImplementation(() => {
+        const source = {
+          buffer: null,
+          connect: vi.fn(),
+          start: vi.fn().mockImplementation((time: number) => startedTimes.push(time)),
+          stop: vi.fn(),
+          playbackRate: { value: 1.0 },
+        };
+        return source;
+      });
+
+      // 1.0 second of audio at 24kHz = 24000 samples
+      const pcm1 = new Int16Array(24000).buffer;
+      const pcm2 = new Int16Array(24000).buffer;
+
+      // Queue Chunk 0 (inter-sentence, isParagraphEnd: false)
+      player.queuePcmChunk(pcm1, 24000, { chapterIndex: 0, chunkIndex: 0, isParagraphEnd: false });
+      // Queue Chunk 1
+      player.queuePcmChunk(pcm2, 24000, { chapterIndex: 0, chunkIndex: 1, isParagraphEnd: false });
+
+      expect(startedTimes.length).toBe(2);
+      const chunk0Start = startedTimes[0];
+      const chunk1Start = startedTimes[1];
+      // Chunk 0 duration is 1.0s. Chunk 1 should start at chunk0Start + 1.0s + 0.25s silence gap = +1.25s
+      const gap = chunk1Start - (chunk0Start + 1.0);
+      expect(gap).toBeCloseTo(0.25, 2);
+    });
+
+    it('schedules 500ms silence after a chunk ending a paragraph', async () => {
+      await player.init();
+      const startedTimes: number[] = [];
+      mockAudioContext.createBufferSource = vi.fn().mockImplementation(() => {
+        const source = {
+          buffer: null,
+          connect: vi.fn(),
+          start: vi.fn().mockImplementation((time: number) => startedTimes.push(time)),
+          stop: vi.fn(),
+          playbackRate: { value: 1.0 },
+        };
+        return source;
+      });
+
+      const pcm1 = new Int16Array(24000).buffer;
+      const pcm2 = new Int16Array(24000).buffer;
+
+      // Queue Chunk 0 ending a paragraph (isParagraphEnd: true)
+      player.queuePcmChunk(pcm1, 24000, { chapterIndex: 0, chunkIndex: 0, isParagraphEnd: true });
+      // Queue Chunk 1 of next paragraph
+      player.queuePcmChunk(pcm2, 24000, { chapterIndex: 0, chunkIndex: 1, isParagraphEnd: false });
+
+      expect(startedTimes.length).toBe(2);
+      const chunk0Start = startedTimes[0];
+      const chunk1Start = startedTimes[1];
+      // Chunk 0 duration is 1.0s. Chunk 1 should start at chunk0Start + 1.0s + 0.5s = +1.5s
+      const gap = chunk1Start - (chunk0Start + 1.0);
+      expect(gap).toBeCloseTo(0.5, 2);
+    });
+
+    it('maintains gapless stitching (0ms silence) between SSE deltas within the same chunk', async () => {
+      await player.init();
+      const startedTimes: number[] = [];
+      mockAudioContext.createBufferSource = vi.fn().mockImplementation(() => {
+        const source = {
+          buffer: null,
+          connect: vi.fn(),
+          start: vi.fn().mockImplementation((time: number) => startedTimes.push(time)),
+          stop: vi.fn(),
+          playbackRate: { value: 1.0 },
+        };
+        return source;
+      });
+
+      // 0.5s delta each
+      const delta1 = new Int16Array(12000).buffer;
+      const delta2 = new Int16Array(12000).buffer;
+
+      // Both belong to the same chunk (chapterIndex: 0, chunkIndex: 0)
+      player.queuePcmChunk(delta1, 24000, { chapterIndex: 0, chunkIndex: 0 });
+      player.queuePcmChunk(delta2, 24000, { chapterIndex: 0, chunkIndex: 0 });
+
+      expect(startedTimes.length).toBe(2);
+      const delta1Start = startedTimes[0];
+      const delta2Start = startedTimes[1];
+      // Delta 2 should start exactly at delta1Start + 0.5s with zero extra silence gap
+      const gap = delta2Start - (delta1Start + 0.5);
+      expect(gap).toBeCloseTo(0.0, 2);
+    });
+  });
 });
 

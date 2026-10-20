@@ -1,6 +1,7 @@
 export interface ChunkMeta {
   chapterIndex: number;
   chunkIndex: number;
+  isParagraphEnd?: boolean;
 }
 
 export interface IAudioStreamPlayer {

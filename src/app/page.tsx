@@ -90,11 +90,18 @@ export default function Home() {
   useEffect(() => {
     bookRepo.getSavedBook().then(saved => {
       if (saved) {
-        const hasLargeChunks = saved.chapters.some(ch => ch.chunks.some(ck => ck.charCount > 350));
-        if (hasLargeChunks) {
+        const needsRechunking = saved.chapters.some(
+          ch => ch.chunks.some(ck => ck.charCount > 350 || ck.isParagraphEnd === undefined)
+        );
+        if (needsRechunking) {
           const updatedChapters = saved.chapters.map(ch => ({
             ...ch,
-            chunks: chunker.chunkText(ch.index, ch.rawText, { minChars: 200, maxChars: 300 }),
+            chunks: chunker.chunkText(ch.index, ch.rawText, {
+              minChars: 20,
+              targetChars: 200,
+              maxChars: 250,
+              safeMaxChars: 350,
+            }),
           }));
           const totalChunks = updatedChapters.reduce((acc, ch) => acc + ch.chunks.length, 0);
           const updatedBook = { ...saved, chapters: updatedChapters, totalChunks };

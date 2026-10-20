@@ -245,6 +245,7 @@ export function useAudioStreamer({ book, settings, onOpenSettings }: UseAudioStr
             bookId: book.id,
             chapterIndex: chapIdx,
             chunkIndex: chunkIdx,
+            isParagraphEnd: chapter.chunks[chunkIdx]?.isParagraphEnd,
           },
           append,
           signal: controller.signal,
