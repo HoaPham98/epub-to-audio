@@ -1,5 +1,8 @@
 import { ChunkMeta, IAudioStreamPlayer } from '@/domain';
 
+export const LOOKAHEAD_INTERVAL_MS = 25;
+export const LOOKAHEAD_WINDOW_SEC = 0.15;
+
 interface ChunkBoundary {
   chapterIndex: number;
   chunkIndex: number;
@@ -8,25 +11,37 @@ interface ChunkBoundary {
   isParagraphEnd?: boolean;
 }
 
-interface QueuedItem {
+interface PendingBufferItem {
   buffer: AudioBuffer;
+  meta?: ChunkMeta;
+}
+
+interface ActiveNodeItem {
+  source: AudioBufferSourceNode;
+  buffer: AudioBuffer;
+  scheduledStart: number;
+  scheduledEnd: number;
   meta?: ChunkMeta;
 }
 
 export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   private audioContext: AudioContext | null = null;
-  private activeSourceNodes: AudioBufferSourceNode[] = [];
+  private activeSourceNodes: ActiveNodeItem[] = [];
   private isCurrentlyPlaying = false;
   private playerState: 'idle' | 'playing' | 'paused' = 'idle';
   private playbackSpeed = 1.0;
   private nextStartTime = 0;
   private accumulatedLeadInSeconds = 0;
   private leadInThresholdSeconds = 0.3; // 300ms pre-buffer lead-in (optimized for CPU deployment profile)
-  private queuedItems: QueuedItem[] = [];
   private isLeadInBuffered = false;
+
+  public pendingBufferQueue: PendingBufferItem[] = [];
+  private lookaheadTimer: number | null = null;
+  public lookaheadWindowSec: number = LOOKAHEAD_WINDOW_SEC;
 
   private totalQueuedDuration = 0;
   private playbackStartTime = 0;
+  private basePlayedTime = 0;
   private pausedAtTime = 0;
 
   // Boundary tracking for synchronized UI chunk highlighting
@@ -190,35 +205,51 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     const audioBuffer = this.decodePcmS16le(pcmBuffer, sampleRate);
     this.totalQueuedDuration += audioBuffer.duration;
 
+    this.pendingBufferQueue.push({ buffer: audioBuffer, meta });
+
     if (!this.isLeadInBuffered) {
-      this.queuedItems.push({ buffer: audioBuffer, meta });
       this.accumulatedLeadInSeconds += audioBuffer.duration;
 
       // When accumulated lead-in threshold is reached
       if (this.accumulatedLeadInSeconds >= this.leadInThresholdSeconds) {
         this.isLeadInBuffered = true;
-        this.flushQueuedBuffers();
+        this.pumpLookaheadScheduler();
       }
     } else {
-      this.scheduleBuffer(audioBuffer, meta);
+      this.pumpLookaheadScheduler();
     }
   }
 
-  private flushQueuedBuffers(): void {
-    while (this.queuedItems.length > 0) {
-      const item = this.queuedItems.shift()!;
+  pumpLookaheadScheduler(): void {
+    if (!this.audioContext || this.playerState === 'paused' || !this.isLeadInBuffered) {
+      return;
+    }
+
+    const now = this.audioContext.currentTime;
+    const windowEnd = now + this.lookaheadWindowSec;
+
+    while (this.pendingBufferQueue.length > 0 && this.nextStartTime < windowEnd) {
+      const item = this.pendingBufferQueue.shift()!;
       this.scheduleBuffer(item.buffer, item.meta);
+    }
+  }
+
+  private startLookaheadTimer(): void {
+    this.stopLookaheadTimer();
+    this.lookaheadTimer = window.setInterval(() => {
+      this.pumpLookaheadScheduler();
+    }, LOOKAHEAD_INTERVAL_MS);
+  }
+
+  private stopLookaheadTimer(): void {
+    if (this.lookaheadTimer !== null) {
+      clearInterval(this.lookaheadTimer);
+      this.lookaheadTimer = null;
     }
   }
 
   private scheduleBuffer(buffer: AudioBuffer, meta?: ChunkMeta): void {
     if (!this.audioContext) return;
-
-    const source = this.audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = this.playbackSpeed;
-    const outputTarget = this.gainNode || this.audioContext.destination;
-    source.connect(outputTarget);
 
     const now = this.audioContext.currentTime;
     if (this.nextStartTime < now) {
@@ -246,12 +277,24 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.lastScheduledMeta = { ...meta };
     }
 
+    const source = this.audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = this.playbackSpeed;
+    const outputTarget = this.gainNode || this.audioContext.destination;
+    source.connect(outputTarget);
+
     const scheduledStart = this.nextStartTime;
     const durationScaled = buffer.duration / this.playbackSpeed;
     const scheduledEnd = scheduledStart + durationScaled;
 
     source.start(scheduledStart);
-    this.activeSourceNodes.push(source);
+    this.activeSourceNodes.push({
+      source,
+      buffer,
+      scheduledStart,
+      scheduledEnd,
+      meta,
+    });
 
     // Record or extend chunk boundary
     if (meta) {
@@ -277,17 +320,18 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.nextStartTime = scheduledEnd;
 
     source.onended = () => {
-      const idx = this.activeSourceNodes.indexOf(source);
+      const idx = this.activeSourceNodes.findIndex(item => item.source === source);
       if (idx !== -1) {
         this.activeSourceNodes.splice(idx, 1);
       }
       if (
         this.activeSourceNodes.length === 0 &&
-        this.queuedItems.length === 0 &&
+        this.pendingBufferQueue.length === 0 &&
         this.isCurrentlyPlaying
       ) {
         this.isCurrentlyPlaying = false;
         this.stopTicker();
+        this.stopLookaheadTimer();
         this.endedCallbacks.forEach(cb => cb());
       }
     };
@@ -301,6 +345,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       this.isCurrentlyPlaying = true;
       this.ensureAudioElementPlaying().catch(() => {});
       this.startTicker();
+      this.startLookaheadTimer();
     }
   }
 
@@ -339,13 +384,14 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       });
     }
 
-    if (this.queuedItems.length > 0 && !this.isLeadInBuffered) {
+    if (this.pendingBufferQueue.length > 0 && !this.isLeadInBuffered) {
       this.isLeadInBuffered = true;
-      this.flushQueuedBuffers();
     }
     this.playerState = 'playing';
     this.isCurrentlyPlaying = true;
     this.startTicker();
+    this.startLookaheadTimer();
+    this.pumpLookaheadScheduler();
     this.notifyPlaybackState('playing');
   }
 
@@ -353,8 +399,10 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.isInternalPauseAction = true;
     this.playerState = 'paused';
     this.pausedAtTime = this.getCurrentTime();
+    this.basePlayedTime = this.pausedAtTime;
     this.isCurrentlyPlaying = false;
     this.stopTicker();
+    this.stopLookaheadTimer();
     // Soft mute via gainNode to silence audio output cleanly
     if (this.gainNode && this.audioContext) {
       try {
@@ -391,6 +439,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.notifyPlaybackState('idle');
     this.isCurrentlyPlaying = false;
     this.stopTicker();
+    this.stopLookaheadTimer();
     if (pauseBridge && this.audioElement && !this.audioElement.paused) {
       try {
         this.audioElement.pause();
@@ -401,6 +450,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     this.clearQueue();
     this.stopAllNodes();
     this.totalQueuedDuration = 0;
+    this.basePlayedTime = 0;
     this.playbackStartTime = 0;
     this.nextStartTime = 0;
     this.pausedAtTime = 0;
@@ -430,26 +480,96 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   seek(seconds: number): void {
+    this.basePlayedTime = seconds;
     this.pausedAtTime = seconds;
+    if (this.audioContext) {
+      this.playbackStartTime = this.audioContext.currentTime;
+    }
     this.timeUpdateCallbacks.forEach(cb => cb(seconds));
   }
 
   setSpeed(speed: number): void {
-    this.playbackSpeed = speed;
-    for (const node of this.activeSourceNodes) {
-      try {
-        node.playbackRate.value = speed;
-      } catch {
-        // ignore
+    if (speed <= 0 || speed === this.playbackSpeed) return;
+    const oldSpeed = this.playbackSpeed;
+    const newSpeed = speed;
+
+    if (this.audioContext && this.playerState === 'playing' && this.playbackStartTime > 0) {
+      this.basePlayedTime = this.getCurrentTime();
+      this.playbackStartTime = this.audioContext.currentTime;
+    }
+
+    this.playbackSpeed = newSpeed;
+
+    if (!this.audioContext) return;
+    const now = this.audioContext.currentTime;
+
+    // 1. Separate nodes into currently playing vs future nodes
+    const futureItems: ActiveNodeItem[] = [];
+    const remainingActiveNodes: ActiveNodeItem[] = [];
+
+    for (const item of this.activeSourceNodes) {
+      if (item.scheduledStart > now) {
+        try {
+          item.source.onended = null;
+          item.source.stop();
+          item.source.disconnect();
+        } catch {
+          // ignore
+        }
+        futureItems.push(item);
+      } else {
+        try {
+          item.source.playbackRate.value = newSpeed;
+        } catch {
+          // ignore
+        }
+        const remainingOld = Math.max(0, item.scheduledEnd - now);
+        const remainingNew = remainingOld * (oldSpeed / newSpeed);
+        item.scheduledEnd = now + remainingNew;
+        remainingActiveNodes.push(item);
       }
     }
+
+    this.activeSourceNodes = remainingActiveNodes;
+
+    // Prepend futureItems in original order back to pendingBufferQueue
+    if (futureItems.length > 0) {
+      this.pendingBufferQueue = [
+        ...futureItems.map(f => ({ buffer: f.buffer, meta: f.meta })),
+        ...this.pendingBufferQueue,
+      ];
+    }
+
+    // 2. Adjust nextStartTime to the end of the currently playing node (or now)
+    if (this.activeSourceNodes.length > 0) {
+      const lastNode = this.activeSourceNodes[this.activeSourceNodes.length - 1];
+      this.nextStartTime = lastNode.scheduledEnd;
+    } else {
+      this.nextStartTime = now + 0.03;
+    }
+
+    // 3. Rescale chunkBoundaries
+    for (const b of this.chunkBoundaries) {
+      if (b.endTime > now) {
+        if (b.startTime >= now) {
+          b.startTime = now + (b.startTime - now) * (oldSpeed / newSpeed);
+          b.endTime = now + (b.endTime - now) * (oldSpeed / newSpeed);
+        } else {
+          b.endTime = now + (b.endTime - now) * (oldSpeed / newSpeed);
+        }
+      }
+    }
+
+    // 4. Immediately pump lookahead scheduler to schedule pending buffers at new speed
+    this.pumpLookaheadScheduler();
   }
 
   getCurrentTime(): number {
     if (this.playerState === 'paused' || !this.audioContext || this.playbackStartTime === 0) {
       return this.pausedAtTime;
     }
-    const elapsed = (this.audioContext.currentTime - this.playbackStartTime) * this.playbackSpeed;
+    const elapsed =
+      this.basePlayedTime + (this.audioContext.currentTime - this.playbackStartTime) * this.playbackSpeed;
     return Math.max(0, Math.min(elapsed, this.totalQueuedDuration));
   }
 
@@ -458,24 +578,25 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   getBufferedTime(): number {
-    if (!this.audioContext || this.playbackStartTime === 0) {
-      return 0;
-    }
-    const buffered = (this.nextStartTime - this.playbackStartTime) * this.playbackSpeed;
-    return Math.max(0, Math.min(buffered, this.totalQueuedDuration));
+    return Math.min(this.totalQueuedDuration, this.getCurrentTime() + this.getRemainingBufferedTime());
   }
 
   getRemainingBufferedTime(): number {
     if (!this.audioContext) return 0;
-    return Math.max(0, (this.nextStartTime - this.audioContext.currentTime) * this.playbackSpeed);
+    let pendingDuration = 0;
+    for (const item of this.pendingBufferQueue) {
+      pendingDuration += item.buffer.duration;
+    }
+    const scheduledRemaining = Math.max(0, (this.nextStartTime - this.audioContext.currentTime) * this.playbackSpeed);
+    return scheduledRemaining + pendingDuration;
   }
 
   isBufferExpired(): boolean {
     if (!this.audioContext) return true;
-    if (this.nextStartTime <= this.audioContext.currentTime) {
+    if (this.nextStartTime <= this.audioContext.currentTime && this.pendingBufferQueue.length === 0) {
       return true;
     }
-    if (this.activeSourceNodes.length === 0 && this.queuedItems.length === 0) {
+    if (this.activeSourceNodes.length === 0 && this.pendingBufferQueue.length === 0) {
       return true;
     }
     return false;
@@ -495,7 +616,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   clearQueue(): void {
-    this.queuedItems = [];
+    this.pendingBufferQueue = [];
     this.accumulatedLeadInSeconds = 0;
     this.isLeadInBuffered = false;
     this.lastScheduledMeta = null;
@@ -513,7 +634,7 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
     }
 
     if (speed !== undefined) {
-      this.playbackSpeed = speed;
+      this.setSpeed(speed);
     }
 
     if (!this.audioContext) return;
@@ -523,7 +644,8 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
       const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
       this.totalQueuedDuration += audioBuffer.duration;
       this.isLeadInBuffered = true;
-      this.scheduleBuffer(audioBuffer, meta);
+      this.pendingBufferQueue.push({ buffer: audioBuffer, meta });
+      this.pumpLookaheadScheduler();
       await this.ensureAudioElementPlaying();
     } catch (err: unknown) {
       const error =
@@ -585,11 +707,11 @@ export class WebAudioStreamPlayer implements IAudioStreamPlayer {
   }
 
   private stopAllNodes(): void {
-    for (const node of this.activeSourceNodes) {
+    for (const item of this.activeSourceNodes) {
       try {
-        node.onended = null;
-        node.stop();
-        node.disconnect();
+        item.source.onended = null;
+        item.source.stop();
+        item.source.disconnect();
       } catch {
         // ignore
       }
