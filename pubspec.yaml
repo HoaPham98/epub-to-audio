@@ -1,0 +1,59 @@
+name: epub_to_audio
+description: "EPUB to Audio Reader with on-device offline Vietnamese TTS & direct HTTP streaming."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  lucide_icons_flutter: ^1.1.8
+
+  # On-Device Offline Vietnamese TTS
+  vieneu_tts:
+    git:
+      url: https://github.com/HoaPham98/vieneu-tts-modal.git
+      path: packages/vieneu_tts
+      ref: main
+
+  # EPUB Parsing (pure Dart)
+  archive: ^3.6.1
+  xml: ^6.5.0
+  html: ^0.15.4
+
+  # Networking & Fetch SSE streaming on Web
+  http: ^1.2.0
+  fetch_client: ^1.2.1
+  web: ^1.1.0
+
+  # Storage & Preferences
+  path: ^1.9.0
+  path_provider: ^2.1.5
+  shared_preferences: ^2.3.5
+  sqflite_common_ffi: ^2.3.4+4
+
+  # File picker for EPUB import
+  file_picker: ^8.1.7
+
+  # Audio playback & OS Media Controls
+  just_audio: ^0.9.43
+  audio_service: ^0.18.18
+  audio_session: ^0.1.21
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/icons/
+    - assets/sample-book.epub
+    - assets/silence-10s.wav
