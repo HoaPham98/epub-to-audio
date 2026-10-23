@@ -418,5 +418,53 @@ void main() {
       expect(muteCalled, isFalse, reason: 'Key M should be suppressed when typing');
       expect(speedDownCalled, isFalse, reason: 'Bracket should be suppressed when typing');
     });
+
+    testWidgets('SettingsModal.show and CacheModal.show present as bottom sheets on mobile',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      late BuildContext testContext;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) {
+                testContext = ctx;
+                return const SizedBox();
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Open SettingsModal on mobile
+      SettingsModal.show(
+        testContext,
+        settings: const TTSSettings(endpoint: 'http://test.api'),
+        onSave: (_) {},
+        onOpenModelDownload: () {},
+      );
+      await tester.pumpAndSettle();
+
+      // Verify it's presented in a BottomSheet
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(find.text('Cài đặt Giọng đọc & TTS'), findsOneWidget);
+
+      // Close settings modal
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      // Open CacheModal on mobile
+      final fakeCacheRepo = FakeAudioCacheRepo();
+      final cacheUseCase = ManageAudioCacheUseCase(cacheRepo: fakeCacheRepo);
+      CacheModal.show(testContext, cacheUseCase: cacheUseCase);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(find.text('Bộ Nhớ Đệm Âm Thanh (Audio Cache)'), findsOneWidget);
+    });
   });
 }

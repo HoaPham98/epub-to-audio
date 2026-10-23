@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../../domain/domain.dart';
+import 'cors_proxy_resolver.dart';
 
 class StandardOpenAITTSClient implements ITTSStreamingService {
   final http.Client? customClient;
@@ -39,7 +40,9 @@ class StandardOpenAITTSClient implements ITTSStreamingService {
     TTSSettings settings,
   ) async {
     final client = _createClient();
-    final url = Uri.parse(_resolveSpeechUrl(settings.endpoint));
+    final rawUrl = _resolveSpeechUrl(settings.endpoint);
+    final targetUrl = resolveTTSUrl(rawUrl, settings);
+    final url = Uri.parse(targetUrl);
 
     final headers = <String, String>{
       'Content-Type': 'application/json',

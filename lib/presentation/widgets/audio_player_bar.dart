@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'full_player_sheet.dart';
 
 class AudioPlayerBar extends StatelessWidget {
   final String currentChapterTitle;
@@ -52,15 +53,222 @@ class AudioPlayerBar extends StatelessWidget {
     return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 
+  void _cycleSpeed() {
+    const speeds = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+    int nextIdx = (speeds.indexOf(speed) + 1) % speeds.length;
+    if (nextIdx < 0) nextIdx = 1;
+    onChangeSpeed(speeds[nextIdx]);
+  }
+
+  void _openFullPlayer(BuildContext context) {
+    FullPlayerSheet.show(
+      context,
+      currentChapterTitle: currentChapterTitle,
+      currentChunkIndex: currentChunkIndex,
+      totalChunks: totalChunks,
+      currentTime: currentTime,
+      duration: duration,
+      bufferedTime: bufferedTime,
+      isPlaying: isPlaying,
+      isLoading: isLoading,
+      autoNext: autoNext,
+      speed: speed,
+      volume: volume,
+      onTogglePlayPause: onTogglePlayPause,
+      onPrevChapter: onPrevChapter,
+      onNextChapter: onNextChapter,
+      onSkipRelative: onSkipRelative,
+      onSeek: onSeek,
+      onToggleAutoNext: onToggleAutoNext,
+      onChangeSpeed: onChangeSpeed,
+      onChangeVolume: onChangeVolume,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 768;
+
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final forwardBuffer =
-        (bufferedTime > currentTime) ? (bufferedTime - currentTime) : 0.0;
     final maxDuration = duration > 0 ? duration : 1.0;
     final clampedCurrent = currentTime.clamp(0.0, maxDuration);
+
+    if (isMobile) {
+      return _buildMiniPlayer(context, isDark, clampedCurrent, maxDuration);
+    }
+
+    return _buildDesktopPlayer(context, isDark, clampedCurrent, maxDuration);
+  }
+
+  Widget _buildMiniPlayer(
+    BuildContext context,
+    bool isDark,
+    double clampedCurrent,
+    double maxDuration,
+  ) {
+    final progress = maxDuration > 0 ? (clampedCurrent / maxDuration).clamp(0.0, 1.0) : 0.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF18181B) : Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Top thin progress bar
+            LinearProgressIndicator(
+              value: progress,
+              minHeight: 2.5,
+              backgroundColor: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.indigo),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                children: [
+                  // Tappable chapter / chunk info
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _openFullPlayer(context),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    currentChapterTitle.isEmpty
+                                        ? 'Chưa chọn chương'
+                                        : currentChapterTitle,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.expand_less_rounded,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Đoạn ${currentChunkIndex + 1}/${totalChunks > 0 ? totalChunks : 1} • ${_formatTime(currentTime)} / ${_formatTime(duration)}',
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Touch Controls: -10s, Play/Pause, +10s, Speed
+                  IconButton(
+                    icon: const Icon(Icons.replay_10_rounded, size: 22),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Lùi 10s',
+                    onPressed: () => onSkipRelative(-10),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: const BoxDecoration(
+                      color: Colors.indigo,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              size: 22,
+                              color: Colors.white,
+                            ),
+                      tooltip: isPlaying ? 'Tạm dừng' : 'Phát',
+                      onPressed: onTogglePlayPause,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    icon: const Icon(Icons.forward_10_rounded, size: 22),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Tua 10s',
+                    onPressed: () => onSkipRelative(10),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: _cycleSpeed,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF27272A) : const Color(0xFFF4F4F5),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isDark ? const Color(0xFF3F3F46) : const Color(0xFFE4E4E7),
+                        ),
+                      ),
+                      child: Text(
+                        '${speed.toStringAsFixed(speed % 1 == 0 ? 0 : 2)}x',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopPlayer(
+    BuildContext context,
+    bool isDark,
+    double clampedCurrent,
+    double maxDuration,
+  ) {
+    final forwardBuffer =
+        (bufferedTime > currentTime) ? (bufferedTime - currentTime) : 0.0;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -82,118 +290,71 @@ class AudioPlayerBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Row with 3 sections: Info | Controls | Options
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 720;
-
-              if (!isWide) {
-                // Mobile layout: Stack into 2 rows
-                return Column(
+          Row(
+            children: [
+              // Left: Chapter Info & Forward Buffer Badge
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    Text(
+                      currentChapterTitle.isEmpty
+                          ? 'Chưa chọn chương'
+                          : currentChapterTitle,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 6,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                currentChapterTitle.isEmpty
-                                    ? 'Chưa chọn chương'
-                                    : currentChapterTitle,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                'Đoạn ${currentChunkIndex + 1} / ${totalChunks > 0 ? totalChunks : 1}',
-                                style: const TextStyle(
-                                    fontSize: 10, color: Colors.grey),
-                              ),
-                            ],
-                          ),
+                        Text(
+                          'Đoạn ${currentChunkIndex + 1} / ${totalChunks > 0 ? totalChunks : 1}',
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.grey),
                         ),
-                        _buildControls(),
-                        _buildOptionsRow(isDark, compact: true),
+                        if (forwardBuffer > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Đệm trước: +${forwardBuffer.toStringAsFixed(1)}s',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ],
-                );
-              }
+                ),
+              ),
 
-              // Desktop layout
-              return Row(
-                children: [
-                  // Left: Chapter Info & Forward Buffer Badge
-                  Expanded(
-                    flex: 3,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          currentChapterTitle.isEmpty
-                              ? 'Chưa chọn chương'
-                              : currentChapterTitle,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: 6,
-                          children: [
-                            Text(
-                              'Đoạn ${currentChunkIndex + 1} / ${totalChunks > 0 ? totalChunks : 1}',
-                              style: const TextStyle(
-                                  fontSize: 11, color: Colors.grey),
-                            ),
-                            if (forwardBuffer > 0)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.indigo.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  'Đệm trước: +${forwardBuffer.toStringAsFixed(1)}s',
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.indigo,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+              // Center: Control buttons
+              _buildDesktopControls(),
 
-                  // Center: Control buttons
-                  _buildControls(),
-
-                  // Right: AutoNext, Speed, Volume
-                  Expanded(
-                    flex: 3,
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: _buildOptionsRow(isDark),
-                    ),
-                  ),
-                ],
-              );
-            },
+              // Right: AutoNext, Speed, Volume
+              Expanded(
+                flex: 3,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _buildOptionsRow(isDark),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
 
@@ -245,7 +406,7 @@ class AudioPlayerBar extends StatelessWidget {
     );
   }
 
-  Widget _buildControls() {
+  Widget _buildDesktopControls() {
     return Row(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,

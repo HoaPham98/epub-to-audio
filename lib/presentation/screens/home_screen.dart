@@ -68,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _cacheCount = 0;
 
   StreamSubscription<PlaybackProgress>? _progressSub;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -325,20 +326,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openSettings() {
-    showDialog(
-      context: context,
-      builder: (ctx) => SettingsModal(
-        settings: _settings,
-        onSave: (updated) {
-          setState(() => _settings = updated);
-          _bookRepo.saveSettings(updated);
-          _handleChangeSpeed(updated.speed);
-        },
-        onOpenModelDownload: () {
-          Navigator.of(context).pop();
-          _openModelDownload();
-        },
-      ),
+    SettingsModal.show(
+      context,
+      settings: _settings,
+      onSave: (updated) {
+        setState(() => _settings = updated);
+        _bookRepo.saveSettings(updated);
+        _handleChangeSpeed(updated.speed);
+      },
+      onOpenModelDownload: _openModelDownload,
     );
   }
 
@@ -367,7 +363,7 @@ class _HomeScreenState extends State<HomeScreen> {
         : null;
 
     final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth >= 900;
+    final isDesktop = screenWidth >= 768;
 
     return DesktopShortcutsWrapper(
       onTogglePlayPause: _handleTogglePlayPause,
@@ -379,11 +375,43 @@ class _HomeScreenState extends State<HomeScreen> {
       onSpeedDown: () => _handleChangeSpeed((_speed - 0.25).clamp(0.5, 3.0)),
       onSpeedUp: () => _handleChangeSpeed((_speed + 0.25).clamp(0.5, 3.0)),
       child: Scaffold(
+        key: _scaffoldKey,
+        drawer: !isDesktop
+            ? Drawer(
+                child: SafeArea(
+                  child: Sidebar(
+                    book: _currentBook,
+                    currentChapterIndex: _currentChapterIndex,
+                    isPlaying: _isPlaying,
+                    isParsing: _isParsing,
+                    onSelectChapter: (idx) {
+                      _handleSelectChapter(idx);
+                      Navigator.of(context).pop();
+                    },
+                    onUploadFile: (file) {
+                      _handleUploadFile(file);
+                      Navigator.of(context).pop();
+                    },
+                    onLoadSample: () {
+                      _loadSampleBook();
+                      Navigator.of(context).pop();
+                    },
+                    onClose: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              )
+            : null,
         appBar: Header(
           book: _currentBook,
           cacheCount: _cacheCount,
-          isSidebarOpen: _isSidebarOpen,
-          onToggleSidebar: () => setState(() => _isSidebarOpen = !_isSidebarOpen),
+          isSidebarOpen: isDesktop ? _isSidebarOpen : false,
+          onToggleSidebar: () {
+            if (isDesktop) {
+              setState(() => _isSidebarOpen = !_isSidebarOpen);
+            } else {
+              _scaffoldKey.currentState?.openDrawer();
+            }
+          },
           onOpenSettings: _openSettings,
           onOpenCache: _openCache,
         ),

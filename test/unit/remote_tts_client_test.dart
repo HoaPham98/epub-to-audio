@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:epub_to_audio/domain/domain.dart';
+import 'package:epub_to_audio/infrastructure/tts/cors_proxy_resolver.dart';
 import 'package:epub_to_audio/infrastructure/tts/on_device_tts.dart';
 import 'package:epub_to_audio/infrastructure/tts/standard_openai_tts_client.dart';
 import 'package:epub_to_audio/infrastructure/tts/tts_client_factory.dart';
@@ -147,6 +148,82 @@ data: [DONE]
       );
       final vieneuClient = TTSClientFactory.create(vieneuRemoteSettings);
       expect(vieneuClient, isA<VieNeuStreamTTSClient>());
+    });
+
+    test('TTSSettings serializes and deserializes CORS proxy properties', () {
+      const defaultSettings = TTSSettings();
+      expect(defaultSettings.useCorsProxy, isTrue);
+      expect(defaultSettings.corsProxyUrl, equals('https://proxy.corsfix.com/?'));
+
+      final custom = defaultSettings.copyWith(
+        useCorsProxy: false,
+        corsProxyUrl: 'https://custom-proxy.internal/?',
+      );
+      expect(custom.useCorsProxy, isFalse);
+      expect(custom.corsProxyUrl, equals('https://custom-proxy.internal/?'));
+
+      final json = custom.toJson();
+      final roundtrip = TTSSettings.fromJson(json);
+      expect(roundtrip.useCorsProxy, isFalse);
+      expect(roundtrip.corsProxyUrl, equals('https://custom-proxy.internal/?'));
+    });
+  });
+
+  group('resolveTTSUrl & Web CORS Proxy Routing', () {
+    test('prepends proxy URL when isWebOverride is true and useCorsProxy is enabled', () {
+      const settings = TTSSettings(
+        useCorsProxy: true,
+        corsProxyUrl: 'https://proxy.corsfix.com/?',
+      );
+      final resolved = resolveTTSUrl(
+        'https://my-modal-tts.modal.run/v1/audio/speech',
+        settings,
+        isWebOverride: true,
+      );
+      expect(
+        resolved,
+        equals('https://proxy.corsfix.com/?https://my-modal-tts.modal.run/v1/audio/speech'),
+      );
+    });
+
+    test('preserves direct URL when isWebOverride is false or useCorsProxy is false', () {
+      const settings = TTSSettings(
+        useCorsProxy: true,
+        corsProxyUrl: 'https://proxy.corsfix.com/?',
+      );
+      final onDesktop = resolveTTSUrl(
+        'https://my-modal-tts.modal.run/v1/audio/speech',
+        settings,
+        isWebOverride: false,
+      );
+      expect(onDesktop, equals('https://my-modal-tts.modal.run/v1/audio/speech'));
+
+      final disabled = resolveTTSUrl(
+        'https://my-modal-tts.modal.run/v1/audio/speech',
+        settings.copyWith(useCorsProxy: false),
+        isWebOverride: true,
+      );
+      expect(disabled, equals('https://my-modal-tts.modal.run/v1/audio/speech'));
+    });
+
+    test('correctly handles trailing slash or question mark in proxy URL', () {
+      const slashSettings = TTSSettings(
+        useCorsProxy: true,
+        corsProxyUrl: 'https://cors-proxy.internal/',
+      );
+      expect(
+        resolveTTSUrl('https://api.tts.com/v1', slashSettings, isWebOverride: true),
+        equals('https://cors-proxy.internal/https://api.tts.com/v1'),
+      );
+
+      const noTrailingSettings = TTSSettings(
+        useCorsProxy: true,
+        corsProxyUrl: 'https://cors-proxy.internal',
+      );
+      expect(
+        resolveTTSUrl('https://api.tts.com/v1', noTrailingSettings, isWebOverride: true),
+        equals('https://cors-proxy.internal/https://api.tts.com/v1'),
+      );
     });
   });
 }

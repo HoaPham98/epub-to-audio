@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../../domain/domain.dart';
+import 'cors_proxy_resolver.dart';
 
 class VieNeuStreamTTSClient implements ITTSStreamingService {
   final http.Client? customClient;
@@ -32,7 +33,9 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
     void Function()? onCancel,
   }) async* {
     final client = _createClient();
-    final url = Uri.parse(_resolveSpeechUrl(settings.endpoint));
+    final rawUrl = _resolveSpeechUrl(settings.endpoint);
+    final targetUrl = resolveTTSUrl(rawUrl, settings);
+    final url = Uri.parse(targetUrl);
 
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -166,13 +169,17 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
         clean = clean.replaceAll(RegExp(r'/audio/speech$'), '');
       }
       final targetUrl = clean.endsWith('/voices') ? clean : '$clean/voices';
+      final resolvedUrl = resolveTTSUrl(
+        targetUrl,
+        TTSSettings(endpoint: endpoint, apiKey: apiKey),
+      );
 
       final headers = <String, String>{'Accept': 'application/json'};
       if (apiKey.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${apiKey.trim()}';
       }
 
-      final res = await client.get(Uri.parse(targetUrl), headers: headers);
+      final res = await client.get(Uri.parse(resolvedUrl), headers: headers);
       if (res.statusCode == 200) {
         final dynamic data = jsonDecode(res.body);
         return _parseVoices(data);
@@ -199,13 +206,17 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
         clean = clean.replaceAll(RegExp(r'/audio/speech$'), '');
       }
       final targetUrl = clean.endsWith('/models') ? clean : '$clean/models';
+      final resolvedUrl = resolveTTSUrl(
+        targetUrl,
+        TTSSettings(endpoint: endpoint, apiKey: apiKey),
+      );
 
       final headers = <String, String>{'Accept': 'application/json'};
       if (apiKey.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${apiKey.trim()}';
       }
 
-      final res = await client.get(Uri.parse(targetUrl), headers: headers);
+      final res = await client.get(Uri.parse(resolvedUrl), headers: headers);
       if (res.statusCode == 200) {
         final dynamic data = jsonDecode(res.body);
         return _parseModels(data);

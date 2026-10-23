@@ -22,7 +22,7 @@ The Domain layer SHALL define abstract interfaces (Ports) for audio streaming, a
 - **THEN** it communicates solely via `ITTSStreamingService` or `IAudioStreamPlayer` interfaces without binding to concrete implementations
 
 ### Requirement: TTS Client Factory and Provider Abstraction
-The Infrastructure layer SHALL provide a platform-aware TTS client factory using Dart conditional imports that instantiates the appropriate adapter (`OnDeviceVieNeuTTSClient` on Windows/Mobile, or `VieNeuStreamTTSClient` / `StandardOpenAITTSClient` for remote HTTP endpoints) based on platform capabilities and configuration settings.
+The Infrastructure layer SHALL provide a platform-aware TTS client factory using Dart conditional imports that instantiates the appropriate adapter (`OnDeviceVieNeuTTSClient` on Windows/Mobile, or `VieNeuStreamTTSClient` / `StandardOpenAITTSClient` for remote HTTP endpoints) based on platform capabilities and configuration settings, supporting configurable Web CORS proxy routing.
 
 #### Scenario: Offline on-device configuration on Windows and Mobile
 - **WHEN** the application runs on Windows, Android, or iOS with Offline On-Device mode enabled
@@ -30,7 +30,7 @@ The Infrastructure layer SHALL provide a platform-aware TTS client factory using
 
 #### Scenario: VieNeu endpoint configuration
 - **WHEN** the application runs on Flutter Web or uses Remote Server mode targeting a VieNeu-TTS endpoint
-- **THEN** the factory instantiates `VieNeuStreamTTSClient` configured for direct HTTP SSE and PCM streaming without a CORS proxy
+- **THEN** the factory instantiates `VieNeuStreamTTSClient` configured for direct HTTP or Web CORS-proxied SSE and PCM streaming based on CORS proxy settings (defaulting to `https://proxy.corsfix.com/?` on Web)
 
 #### Scenario: Fallback for standard OpenAI endpoints
 - **WHEN** settings target a remote endpoint without SSE streaming support

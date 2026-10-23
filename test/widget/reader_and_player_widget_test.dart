@@ -190,5 +190,63 @@ void main() {
       await tester.tap(find.text('Auto Next'));
       expect(autoNextToggled, isTrue);
     });
+
+    testWidgets('renders compact MiniPlayerBar on mobile screens and expands FullPlayerSheet',
+        (tester) async {
+      // Simulate mobile device screen size (390 x 844)
+      tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      bool playToggled = false;
+      bool seekCalled = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            bottomNavigationBar: AudioPlayerBar(
+              currentChapterTitle: 'Chương 1: Bức Tranh Con Trăn Khổng Lồ',
+              currentChunkIndex: 0,
+              totalChunks: 3,
+              currentTime: 15.0,
+              duration: 60.0,
+              bufferedTime: 30.0,
+              isPlaying: false,
+              isLoading: false,
+              autoNext: true,
+              speed: 1.0,
+              volume: 1.0,
+              onTogglePlayPause: () => playToggled = true,
+              onPrevChapter: () {},
+              onNextChapter: () {},
+              onSkipRelative: (_) {},
+              onSeek: (_) => seekCalled = true,
+              onToggleAutoNext: () {},
+              onChangeSpeed: (_) {},
+              onChangeVolume: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      // Verify mini player displays chapter title and progress on mobile
+      expect(find.text('Chương 1: Bức Tranh Con Trăn Khổng Lồ'), findsOneWidget);
+      expect(find.text('Đoạn 1/3 • 00:15 / 01:00'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      // Verify mini player controls
+      expect(find.byTooltip('Phát'), findsOneWidget);
+      await tester.tap(find.byTooltip('Phát'));
+      expect(playToggled, isTrue);
+
+      // Tap on chapter info to open FullPlayerSheet
+      await tester.tap(find.text('Chương 1: Bức Tranh Con Trăn Khổng Lồ'));
+      await tester.pumpAndSettle();
+
+      // Verify FullPlayerSheet is open with enlarged controls
+      expect(find.text('ĐANG PHÁT'), findsOneWidget);
+      expect(find.text('Tự chuyển đoạn'), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
+    });
   });
 }

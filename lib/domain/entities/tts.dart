@@ -23,6 +23,8 @@ class TTSSettings {
   final double repetitionPenalty; // 1.0 - 2.0
   final int maxChars; // 256 - 512
   final int threads; // CPU threads on native
+  final bool useCorsProxy;
+  final String corsProxyUrl;
 
   const TTSSettings({
     this.ttsMode = TtsMode.offline,
@@ -42,6 +44,8 @@ class TTSSettings {
     this.repetitionPenalty = 1.2,
     this.maxChars = 512,
     this.threads = 4,
+    this.useCorsProxy = true,
+    this.corsProxyUrl = 'https://proxy.corsfix.com/?',
   });
 
   TTSSettings copyWith({
@@ -62,6 +66,8 @@ class TTSSettings {
     double? repetitionPenalty,
     int? maxChars,
     int? threads,
+    bool? useCorsProxy,
+    String? corsProxyUrl,
   }) {
     return TTSSettings(
       ttsMode: ttsMode ?? this.ttsMode,
@@ -81,6 +87,8 @@ class TTSSettings {
       repetitionPenalty: repetitionPenalty ?? this.repetitionPenalty,
       maxChars: maxChars ?? this.maxChars,
       threads: threads ?? this.threads,
+      useCorsProxy: useCorsProxy ?? this.useCorsProxy,
+      corsProxyUrl: corsProxyUrl ?? this.corsProxyUrl,
     );
   }
 
@@ -102,6 +110,8 @@ class TTSSettings {
         'repetitionPenalty': repetitionPenalty,
         'maxChars': maxChars,
         'threads': threads,
+        'useCorsProxy': useCorsProxy,
+        'corsProxyUrl': corsProxyUrl,
       };
 
   factory TTSSettings.fromJson(Map<String, dynamic> json) => TTSSettings(
@@ -122,6 +132,8 @@ class TTSSettings {
         repetitionPenalty: (json['repetitionPenalty'] as num?)?.toDouble() ?? 1.2,
         maxChars: json['maxChars'] as int? ?? 512,
         threads: json['threads'] as int? ?? 4,
+        useCorsProxy: json['useCorsProxy'] as bool? ?? true,
+        corsProxyUrl: json['corsProxyUrl'] as String? ?? 'https://proxy.corsfix.com/?',
       );
 }
 

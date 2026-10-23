@@ -1,6 +1,7 @@
 export 'audio_player_bar.dart';
 export 'cache_modal.dart';
 export 'desktop_shortcuts_wrapper.dart';
+export 'full_player_sheet.dart';
 export 'header.dart';
 export 'offline_model_download_modal.dart';
 export 'reader.dart';
