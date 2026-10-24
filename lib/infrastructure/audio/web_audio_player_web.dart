@@ -8,6 +8,9 @@ import 'audio_timeline_tracker.dart';
 @JS('_webAudioEngine')
 external JSObject? get _webAudioEngine;
 
+@JS('_registerWebAudioEndedCallback')
+external void _registerWebAudioEndedCallback(JSFunction fn);
+
 extension WebAudioEngineMethods on JSObject {
   external void queuePCMChunk(JSUint8Array pcmBytes, int sampleRate);
   external void play();
@@ -43,7 +46,21 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
   String? get coverUrl => _coverUrl;
   String get chapterTitle => _chapterTitle;
 
-  WebAudioStreamPlayerAdapter();
+  WebAudioStreamPlayerAdapter() {
+    try {
+      _registerWebAudioEndedCallback(() {
+        if (_isPlaying) {
+          debugPrint('[WebAudioStreamPlayer] JS audio ended callback fired');
+          _currentTime = _timeline.totalDuration;
+          _isPlaying = false;
+          _ticker?.cancel();
+          _emitProgress();
+        }
+      }.toJS);
+    } catch (e) {
+      debugPrint('[WebAudioStreamPlayer] error registering ended callback: $e');
+    }
+  }
 
   @override
   Stream<PlaybackProgress> get progressStream => _progressController.stream;

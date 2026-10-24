@@ -11,6 +11,8 @@ class DesktopShortcutsWrapper extends StatefulWidget {
   final VoidCallback? onToggleMute;
   final VoidCallback? onSpeedDown;
   final VoidCallback? onSpeedUp;
+  final VoidCallback? onNextChunk;
+  final VoidCallback? onPrevChunk;
   final bool isEnabled;
 
   const DesktopShortcutsWrapper({
@@ -24,6 +26,8 @@ class DesktopShortcutsWrapper extends StatefulWidget {
     this.onToggleMute,
     this.onSpeedDown,
     this.onSpeedUp,
+    this.onNextChunk,
+    this.onPrevChunk,
     this.isEnabled = true,
   });
 
@@ -111,6 +115,16 @@ class _DesktopShortcutsWrapperState extends State<DesktopShortcutsWrapper> {
 
     if (key == LogicalKeyboardKey.bracketRight) {
       widget.onSpeedUp?.call();
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.pageDown || key == LogicalKeyboardKey.keyN) {
+      widget.onNextChunk?.call();
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.pageUp || key == LogicalKeyboardKey.keyP) {
+      widget.onPrevChunk?.call();
       return KeyEventResult.handled;
     }
 

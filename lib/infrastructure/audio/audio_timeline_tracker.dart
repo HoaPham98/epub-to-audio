@@ -41,12 +41,23 @@ class AudioTimelineTracker {
   }
 
   /// Enqueues a chunk and its subsequent silence boundary.
+  /// For streaming SSE packets belonging to the same chunk, accumulates duration
+  /// without duplicating sentence or paragraph silence gaps.
   ChunkBoundary enqueueChunk({
     required int chapterIndex,
     required int chunkIndex,
     required double chunkAudioDuration,
     required bool isParagraphEnd,
   }) {
+    if (_boundaries.isNotEmpty &&
+        _boundaries.last.chapterIndex == chapterIndex &&
+        _boundaries.last.chunkIndex == chunkIndex) {
+      final last = _boundaries.last;
+      last.endTime += chunkAudioDuration;
+      _accumulatedTime += chunkAudioDuration;
+      return last;
+    }
+
     final silence = getSilenceDuration(isParagraphEnd: isParagraphEnd);
     final totalChunkTime = chunkAudioDuration + silence;
 

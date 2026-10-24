@@ -192,14 +192,18 @@ class _ReaderState extends State<Reader> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Đoạn ${chunk.index + 1} (${chunk.charCount} ký tự)',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
-                                fontFamily: 'monospace',
+                            Flexible(
+                              child: Text(
+                                'Đoạn ${chunk.index + 1} (${chunk.charCount} ký tự)',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                  fontFamily: 'monospace',
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            const SizedBox(width: 8),
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [

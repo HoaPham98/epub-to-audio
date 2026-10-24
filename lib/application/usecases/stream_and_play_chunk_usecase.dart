@@ -79,12 +79,16 @@ class StreamAndPlayChunkUseCase {
           return StreamAndPlayResult(fromCache: true, audioBytes: cached.bytes);
         }
 
+        if (!params.append) {
+          await audioPlayer.clearQueue();
+        }
+
         params.onFirstData?.call();
         await audioPlayer.queueAudioChunk(
           params.chapterIndex,
           params.chunkIndex,
           cached.bytes,
-          isLastChunk: params.isLastChunk,
+          isLastChunk: true,
           meta: meta,
           sampleRate: params.settings.sampleRate,
         );

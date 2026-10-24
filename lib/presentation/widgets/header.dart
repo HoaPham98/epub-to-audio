@@ -133,7 +133,7 @@ class Header extends StatelessWidget implements PreferredSizeWidget {
                       'EPUB to Audio',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     )
-                  : const Spacer(),
+                  : const SizedBox.shrink(),
             ),
 
           // Right: Actions

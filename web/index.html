@@ -109,6 +109,10 @@
           if (idx !== -1) this.sources.splice(idx, 1);
           if (this.sources.length === 0 && this.ctx.currentTime >= this.nextStartTime) {
             this.isPlaying = false;
+            console.log('[WebAudioEngine] All queued audio ended');
+            if (typeof window._onWebAudioEnded === 'function') {
+              try { window._onWebAudioEnded(); } catch (e) { console.error(e); }
+            }
           }
         };
       }
@@ -145,6 +149,9 @@
     }
 
     window._webAudioEngine = new WebAudioEngine();
+    window._registerWebAudioEndedCallback = function(fn) {
+      window._onWebAudioEnded = fn;
+    };
 
     // Auto-resume AudioContext on first user interaction anywhere
     const unlockAudio = () => {

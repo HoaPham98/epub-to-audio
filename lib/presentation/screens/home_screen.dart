@@ -59,6 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   bool _isParsing = false;
   bool _isPlaying = false;
+  bool _autoNext = true;
+  bool _isAutoAdvancing = false;
+  bool _isUserPaused = false;
   double _currentTime = 0.0;
   double _duration = 0.0;
   final double _bufferedTime = 0.0;
@@ -113,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (progress != null) {
               _currentChapterIndex = progress.chapterIndex.clamp(0, lastBook.chapters.length - 1);
               _currentChunkIndex = progress.chunkIndex;
+              _autoNext = progress.autoNext;
             }
           });
         }
@@ -130,6 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onProgressUpdate(PlaybackProgress progress) {
     if (!mounted) return;
+    final wasPlaying = _isPlaying;
     setState(() {
       _isPlaying = progress.isPlaying;
       _currentTime = progress.currentTime;
@@ -140,7 +145,37 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     if (_currentBook != null) {
-      _bookRepo.saveProgress(_currentBook!.id, progress);
+      _bookRepo.saveProgress(
+        _currentBook!.id,
+        PlaybackProgress(
+          chapterIndex: _currentChapterIndex,
+          chunkIndex: _currentChunkIndex,
+          currentTime: _currentTime,
+          duration: _duration,
+          isPlaying: _isPlaying,
+          isLoading: _bufferingChunk != null,
+          autoNext: _autoNext,
+          chunkStatuses: Map.unmodifiable(_chunkStatuses),
+        ),
+      );
+    }
+
+    // Auto-advance to next chunk when current chunk finishes
+    if (!_isUserPaused &&
+        _autoNext &&
+        wasPlaying &&
+        !progress.isPlaying &&
+        progress.duration > 0 &&
+        progress.currentTime >= progress.duration - 0.3) {
+      if (!_isAutoAdvancing) {
+        _isAutoAdvancing = true;
+        Future.microtask(() {
+          if (mounted && _autoNext && !_isUserPaused) {
+            _playNextChunk();
+          }
+          _isAutoAdvancing = false;
+        });
+      }
     }
   }
 
@@ -202,12 +237,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _handleSelectChapter(int index) {
     if (_currentBook == null || index < 0 || index >= _currentBook!.chapters.length) return;
+    final shouldPlay = _isPlaying;
+    _audioPlayer.pause();
     setState(() {
       _currentChapterIndex = index;
       _currentChunkIndex = 0;
+      _currentTime = 0.0;
+      _duration = 0.0;
       _chunkStatuses.clear();
     });
-    _audioPlayer.pause();
+    if (shouldPlay) {
+      _playChunk(index, 0);
+    }
   }
 
   Future<void> _playChunk(int chapterIndex, int chunkIndex) async {
@@ -215,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final chapter = _currentBook!.chapters[chapterIndex];
     if (chunkIndex < 0 || chunkIndex >= chapter.chunks.length) return;
 
+    _isUserPaused = false;
     final chunk = chapter.chunks[chunkIndex];
     final ttsService = widget.ttsService ?? TTSClientFactory.create(_settings);
 
@@ -255,6 +297,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _chunkStatuses[chunkIndex] = ChunkStatus.error;
           _bufferingChunk = null;
+          _isPlaying = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Lỗi phát âm thanh: $e')),
@@ -263,8 +306,35 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _triggerPrefetch(int chapterIndex, int chunkIndex) {
+  void _playNextChunk() {
     if (_currentBook == null) return;
+    final currentChapter = _currentBook!.chapters[_currentChapterIndex];
+    if (_currentChunkIndex + 1 < currentChapter.chunks.length) {
+      _playChunk(_currentChapterIndex, _currentChunkIndex + 1);
+    } else if (_autoNext && _currentChapterIndex + 1 < _currentBook!.chapters.length) {
+      _playChunk(_currentChapterIndex + 1, 0);
+    } else {
+      setState(() {
+        _isPlaying = false;
+        _chunkStatuses[_currentChunkIndex] = ChunkStatus.ready;
+      });
+      _audioPlayer.stop();
+    }
+  }
+
+  void _playPrevChunk() {
+    if (_currentBook == null) return;
+    if (_currentChunkIndex > 0) {
+      _playChunk(_currentChapterIndex, _currentChunkIndex - 1);
+    } else if (_currentChapterIndex > 0) {
+      final prevChapter = _currentBook!.chapters[_currentChapterIndex - 1];
+      final lastChunkIndex = prevChapter.chunks.isNotEmpty ? prevChapter.chunks.length - 1 : 0;
+      _playChunk(_currentChapterIndex - 1, lastChunkIndex);
+    }
+  }
+
+  void _triggerPrefetch(int chapterIndex, int chunkIndex) {
+    if (_currentBook == null || !_settings.enablePrefetch) return;
     final ttsService = widget.ttsService ?? TTSClientFactory.create(_settings);
 
     _prefetchUseCase.execute(
@@ -273,19 +343,30 @@ class _HomeScreenState extends State<HomeScreen> {
       currentChunkIndex: chunkIndex,
       settings: _settings,
       ttsService: ttsService,
-    );
+    ).then((count) {
+      if (count > 0 && mounted) {
+        _refreshCacheCount();
+      }
+    });
   }
 
   void _handleTogglePlayPause() {
     if (_isPlaying) {
+      _isUserPaused = true;
       _audioPlayer.pause();
     } else {
-      if (_duration > 0 && _currentTime < _duration) {
+      _isUserPaused = false;
+      if (_audioPlayer.currentProgress.duration > 0 &&
+          _audioPlayer.currentProgress.currentTime < _audioPlayer.currentProgress.duration) {
         _audioPlayer.play();
       } else if (_currentBook != null && _currentBook!.chapters.isNotEmpty) {
         _playChunk(_currentChapterIndex, _currentChunkIndex);
       }
     }
+  }
+
+  void _handleToggleAutoNext() {
+    setState(() => _autoNext = !_autoNext);
   }
 
   void _handleSkipRelative(double seconds) {
@@ -379,6 +460,8 @@ class _HomeScreenState extends State<HomeScreen> {
       onToggleMute: _handleToggleMute,
       onSpeedDown: () => _handleChangeSpeed((_speed - 0.25).clamp(0.5, 3.0)),
       onSpeedUp: () => _handleChangeSpeed((_speed + 0.25).clamp(0.5, 3.0)),
+      onNextChunk: _playNextChunk,
+      onPrevChunk: _playPrevChunk,
       child: Scaffold(
         key: _scaffoldKey,
         drawer: !isDesktop
@@ -447,7 +530,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       isPlaying: _isPlaying,
                       isLoading: _bufferingChunk != null,
                       bufferingChunk: _bufferingChunk,
-                      onPlayChunk: _playChunk,
+                      onPlayChunk: (chapIdx, chunkIdx) {
+                        if (chapIdx == _currentChapterIndex &&
+                            chunkIdx == _currentChunkIndex &&
+                            _isPlaying) {
+                          _handleTogglePlayPause();
+                        } else {
+                          _playChunk(chapIdx, chunkIdx);
+                        }
+                      },
                     ),
                   ),
                 ],
@@ -461,6 +552,7 @@ class _HomeScreenState extends State<HomeScreen> {
           bufferedTime: _bufferedTime,
           isPlaying: _isPlaying,
           isLoading: _bufferingChunk != null,
+          autoNext: _autoNext,
           speed: _speed,
           volume: _volume,
           voice: _settings.voice,
@@ -470,7 +562,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onNextChapter: _handleNextChapter,
           onSkipRelative: _handleSkipRelative,
           onSeek: _handleSeek,
-          onToggleAutoNext: () {},
+          onToggleAutoNext: _handleToggleAutoNext,
           onChangeSpeed: _handleChangeSpeed,
           onChangeVolume: _handleChangeVolume,
         ),

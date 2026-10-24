@@ -70,3 +70,4 @@ node_modules/
 .next/
 dist/
 coverage/
+devtools_options.yaml
