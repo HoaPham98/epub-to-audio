@@ -115,6 +115,7 @@ class StreamAndPlayChunkUseCase {
 
     final List<Uint8List> pcmBuffers = [];
     bool hasFiredFirstData = false;
+    int streamSampleRate = params.settings.sampleRate;
 
     try {
       final stream = params.ttsService.streamSpeech(
@@ -124,6 +125,7 @@ class StreamAndPlayChunkUseCase {
       );
 
       await for (final chunk in stream) {
+        streamSampleRate = chunk.sampleRate;
         if (params.isCancelled?.call() == true) {
           if (!params.append) {
             await audioPlayer.stop();
@@ -174,7 +176,7 @@ class StreamAndPlayChunkUseCase {
 
         final wavBytes = pcmToWav(
           fullPcm,
-          sampleRate: params.settings.sampleRate,
+          sampleRate: streamSampleRate,
           channels: params.settings.channels,
         );
 

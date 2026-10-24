@@ -21,6 +21,8 @@ class AudioPlayerBar extends StatelessWidget {
   final VoidCallback onToggleAutoNext;
   final Function(double speed) onChangeSpeed;
   final Function(double volume) onChangeVolume;
+  final String voice;
+  final VoidCallback? onOpenSettings;
 
   const AudioPlayerBar({
     super.key,
@@ -35,6 +37,8 @@ class AudioPlayerBar extends StatelessWidget {
     this.autoNext = true,
     this.speed = 1.0,
     this.volume = 1.0,
+    this.voice = '',
+    this.onOpenSettings,
     required this.onTogglePlayPause,
     required this.onPrevChapter,
     required this.onNextChapter,
@@ -74,6 +78,8 @@ class AudioPlayerBar extends StatelessWidget {
       autoNext: autoNext,
       speed: speed,
       volume: volume,
+      voice: voice,
+      onOpenSettings: onOpenSettings,
       onTogglePlayPause: onTogglePlayPause,
       onPrevChapter: onPrevChapter,
       onNextChapter: onNextChapter,
@@ -179,7 +185,7 @@ class AudioPlayerBar extends StatelessWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Đoạn ${currentChunkIndex + 1}/${totalChunks > 0 ? totalChunks : 1} • ${_formatTime(currentTime)} / ${_formatTime(duration)}',
+                              'Đoạn ${currentChunkIndex + 1}/${totalChunks > 0 ? totalChunks : 1}${voice.isNotEmpty ? " • $voice" : ""} • ${_formatTime(currentTime)} / ${_formatTime(duration)}',
                               style: const TextStyle(fontSize: 11, color: Colors.grey),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -320,6 +326,35 @@ class AudioPlayerBar extends StatelessWidget {
                           style: const TextStyle(
                               fontSize: 11, color: Colors.grey),
                         ),
+                        if (voice.isNotEmpty)
+                          InkWell(
+                            onTap: onOpenSettings,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.indigo.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.record_voice_over,
+                                      size: 11, color: Colors.indigo),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    voice,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.indigo,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         if (forwardBuffer > 0)
                           Container(
                             padding: const EdgeInsets.symmetric(

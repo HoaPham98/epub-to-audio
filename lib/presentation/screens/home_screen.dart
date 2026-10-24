@@ -463,6 +463,8 @@ class _HomeScreenState extends State<HomeScreen> {
           isLoading: _bufferingChunk != null,
           speed: _speed,
           volume: _volume,
+          voice: _settings.voice,
+          onOpenSettings: _openSettings,
           onTogglePlayPause: _handleTogglePlayPause,
           onPrevChapter: _handlePrevChapter,
           onNextChapter: _handleNextChapter,

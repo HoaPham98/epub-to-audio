@@ -51,6 +51,7 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
       'voice': settings.voice,
       'response_format': 'pcm',
       'stream_format': 'sse',
+      'sample_rate': settings.sampleRate,
       'speed': settings.speed,
       'temperature': settings.temperature,
       'top_k': settings.topK,
@@ -98,7 +99,11 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
       throw http.ClientException('Lỗi $status từ máy chủ TTS', url);
     }
 
-    final respSampleRate = int.tryParse(response.headers['x-sample-rate'] ?? '') ?? settings.sampleRate;
+    int effectiveSampleRate = settings.sampleRate;
+    final headerSampleRate = int.tryParse(response.headers['x-sample-rate'] ?? '');
+    if (headerSampleRate != null && headerSampleRate > 0) {
+      effectiveSampleRate = headerSampleRate;
+    }
 
     final linesStream = response.stream
         .transform(utf8.decoder)
@@ -118,7 +123,7 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
           final pcmBytes = base64Decode(event['audio'] as String);
           yield AudioChunk(
             pcmBuffer: pcmBytes,
-            sampleRate: respSampleRate,
+            sampleRate: effectiveSampleRate,
             channels: 1,
           );
         } else if (type == 'speech.audio.done') {
@@ -138,8 +143,10 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
     TTSSettings settings,
   ) async {
     final pcmChunks = <Uint8List>[];
+    int effectiveRate = settings.sampleRate;
     await for (final chunk in streamSpeech(text, settings)) {
       pcmChunks.add(chunk.pcmBuffer);
+      effectiveRate = chunk.sampleRate;
     }
 
     final totalLen = pcmChunks.fold<int>(0, (sum, b) => sum + b.length);
@@ -152,7 +159,7 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
 
     return pcmToWav(
       fullPcm,
-      sampleRate: settings.sampleRate,
+      sampleRate: effectiveRate,
       channels: 1,
     );
   }
@@ -160,8 +167,10 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
   @override
   Future<List<VoiceOption>> fetchVoices(
     String endpoint,
-    String apiKey,
-  ) async {
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async {
     final client = _createClient();
     try {
       var clean = (endpoint.isEmpty ? 'http://localhost:8000/v1' : endpoint)
@@ -173,7 +182,12 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
       final targetUrl = clean.endsWith('/voices') ? clean : '$clean/voices';
       final resolvedUrl = resolveTTSUrl(
         targetUrl,
-        TTSSettings(endpoint: endpoint, apiKey: apiKey),
+        TTSSettings(
+          endpoint: endpoint,
+          apiKey: apiKey,
+          useCorsProxy: useCorsProxy,
+          corsProxyUrl: corsProxyUrl,
+        ),
       );
 
       final headers = <String, String>{'Accept': 'application/json'};
@@ -197,8 +211,10 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
   @override
   Future<List<ModelOption>> fetchModels(
     String endpoint,
-    String apiKey,
-  ) async {
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async {
     final client = _createClient();
     try {
       var clean = (endpoint.isEmpty ? 'http://localhost:8000/v1' : endpoint)
@@ -210,7 +226,12 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
       final targetUrl = clean.endsWith('/models') ? clean : '$clean/models';
       final resolvedUrl = resolveTTSUrl(
         targetUrl,
-        TTSSettings(endpoint: endpoint, apiKey: apiKey),
+        TTSSettings(
+          endpoint: endpoint,
+          apiKey: apiKey,
+          useCorsProxy: useCorsProxy,
+          corsProxyUrl: corsProxyUrl,
+        ),
       );
 
       final headers = <String, String>{'Accept': 'application/json'};

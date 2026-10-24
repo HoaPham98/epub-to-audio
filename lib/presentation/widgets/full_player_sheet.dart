@@ -20,6 +20,8 @@ class FullPlayerSheet extends StatefulWidget {
   final VoidCallback onToggleAutoNext;
   final Function(double speed) onChangeSpeed;
   final Function(double volume) onChangeVolume;
+  final String voice;
+  final VoidCallback? onOpenSettings;
 
   const FullPlayerSheet({
     super.key,
@@ -34,6 +36,8 @@ class FullPlayerSheet extends StatefulWidget {
     this.autoNext = true,
     this.speed = 1.0,
     this.volume = 1.0,
+    this.voice = '',
+    this.onOpenSettings,
     required this.onTogglePlayPause,
     required this.onPrevChapter,
     required this.onNextChapter,
@@ -57,6 +61,8 @@ class FullPlayerSheet extends StatefulWidget {
     bool autoNext = true,
     double speed = 1.0,
     double volume = 1.0,
+    String voice = '',
+    VoidCallback? onOpenSettings,
     required VoidCallback onTogglePlayPause,
     required VoidCallback onPrevChapter,
     required VoidCallback onNextChapter,
@@ -82,6 +88,8 @@ class FullPlayerSheet extends StatefulWidget {
         autoNext: autoNext,
         speed: speed,
         volume: volume,
+        voice: voice,
+        onOpenSettings: onOpenSettings,
         onTogglePlayPause: onTogglePlayPause,
         onPrevChapter: onPrevChapter,
         onNextChapter: onNextChapter,
@@ -245,6 +253,7 @@ class _FullPlayerSheetState extends State<FullPlayerSheet> {
                 alignment: WrapAlignment.center,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 spacing: 8,
+                runSpacing: 4,
                 children: [
                   Text(
                     'Đoạn ${widget.currentChunkIndex + 1} / ${widget.totalChunks > 0 ? widget.totalChunks : 1}',
@@ -253,6 +262,37 @@ class _FullPlayerSheetState extends State<FullPlayerSheet> {
                       color: isDark ? Colors.grey[400] : Colors.grey[600],
                     ),
                   ),
+                  if (widget.voice.isNotEmpty)
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        widget.onOpenSettings?.call();
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.indigo.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.record_voice_over, size: 12, color: Colors.indigo),
+                            const SizedBox(width: 4),
+                            Text(
+                              widget.voice,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   if (forwardBuffer > 0)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

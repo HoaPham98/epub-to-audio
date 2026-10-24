@@ -37,6 +37,7 @@ data: [DONE]
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         expect(body['stream_format'], equals('sse'));
         expect(body['response_format'], equals('pcm'));
+        expect(body['sample_rate'], equals(24000));
         expect(body.containsKey('max_chars'), isFalse);
 
         return http.Response(
@@ -58,6 +59,53 @@ data: [DONE]
       expect(chunks[0].pcmBuffer, equals(pcm1));
       expect(chunks[0].sampleRate, equals(24000));
       expect(chunks[1].pcmBuffer, equals(pcm2));
+    });
+
+    test('correctly sends 48,000 Hz sample_rate for Native VieNeu streaming', () async {
+      final pcm = Uint8List.fromList([1, 2, 3, 4]);
+      final ssePayload = 'data: {"type": "speech.audio.delta", "audio": "${base64Encode(pcm)}"}\n\ndata: [DONE]\n';
+
+      final mockClient = MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['sample_rate'], equals(48000));
+        return http.Response(
+          ssePayload,
+          200,
+          headers: {'content-type': 'text/event-stream', 'x-sample-rate': '48000'},
+        );
+      });
+
+      final client = VieNeuStreamTTSClient(customClient: mockClient);
+      const settings = TTSSettings(
+        endpoint: 'https://vieneu-tts.iamqh.io.vn/v1',
+        sampleRate: 48000,
+      );
+
+      final chunks = await client.streamSpeech('Xin chào', settings).toList();
+      expect(chunks.length, equals(1));
+      expect(chunks[0].sampleRate, equals(48000));
+    });
+
+    test('fetchVoices parses JSON list of voices from VieNeu endpoint', () async {
+      const voicesJson = '''
+      [
+        {"id": "Mai Anh", "name": "Mai Anh", "description": "Nữ · Bắc", "gender": "female"},
+        {"id": "Hải Đăng", "name": "Hải Đăng", "description": "Nam · Bắc", "gender": "male"}
+      ]
+      ''';
+
+      final mockClient = MockClient((request) async {
+        expect(request.url.path, endsWith('/voices'));
+        return http.Response(voicesJson, 200, headers: {'content-type': 'application/json'});
+      });
+
+      final client = VieNeuStreamTTSClient(customClient: mockClient);
+      final voices = await client.fetchVoices('https://vieneu-tts.iamqh.io.vn/v1', '');
+
+      expect(voices.length, equals(2));
+      expect(voices[0].id, equals('Mai Anh'));
+      expect(voices[0].gender, equals('female'));
+      expect(voices[1].id, equals('Hải Đăng'));
     });
 
     test('retries with backoff on HTTP 429 Server Busy before succeeding',

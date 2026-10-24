@@ -16,13 +16,17 @@ abstract interface class ITTSStreamingService {
 
   Future<List<VoiceOption>> fetchVoices(
     String endpoint,
-    String apiKey,
-  );
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  });
 
   Future<List<ModelOption>> fetchModels(
     String endpoint,
-    String apiKey,
-  );
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  });
 
   Future<({bool success, String message})> testConnection(
     TTSSettings settings,

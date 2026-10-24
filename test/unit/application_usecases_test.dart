@@ -249,12 +249,20 @@ class FakeTTSStreamingService implements ITTSStreamingService {
 
   @override
   Future<List<ModelOption>> fetchModels(
-          String endpoint, String apiKey) async =>
+    String endpoint,
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async =>
       const [ModelOption(id: 'model-1', name: 'Model 1')];
 
   @override
   Future<List<VoiceOption>> fetchVoices(
-          String endpoint, String apiKey) async =>
+    String endpoint,
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async =>
       const [VoiceOption(id: 'mai_anh', name: 'Mai Anh')];
 
   @override

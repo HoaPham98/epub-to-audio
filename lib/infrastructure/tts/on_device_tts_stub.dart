@@ -24,16 +24,20 @@ class OnDeviceVieNeuTTSClient implements ITTSStreamingService {
   @override
   Future<List<VoiceOption>> fetchVoices(
     String endpoint,
-    String apiKey,
-  ) async {
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async {
     return const [];
   }
 
   @override
   Future<List<ModelOption>> fetchModels(
     String endpoint,
-    String apiKey,
-  ) async {
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async {
     return const [];
   }
 

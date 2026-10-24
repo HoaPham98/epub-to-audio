@@ -83,8 +83,10 @@ class StandardOpenAITTSClient implements ITTSStreamingService {
   @override
   Future<List<VoiceOption>> fetchVoices(
     String endpoint,
-    String apiKey,
-  ) async {
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async {
     return const [
       VoiceOption(id: 'alloy', name: 'Alloy'),
       VoiceOption(id: 'echo', name: 'Echo'),
@@ -98,8 +100,10 @@ class StandardOpenAITTSClient implements ITTSStreamingService {
   @override
   Future<List<ModelOption>> fetchModels(
     String endpoint,
-    String apiKey,
-  ) async {
+    String apiKey, {
+    bool useCorsProxy = false,
+    String corsProxyUrl = 'https://proxy.corsfix.com/?',
+  }) async {
     return const [
       ModelOption(id: 'tts-1', name: 'TTS-1 (Standard)'),
       ModelOption(id: 'tts-1-hd', name: 'TTS-1 HD (High Quality)'),
