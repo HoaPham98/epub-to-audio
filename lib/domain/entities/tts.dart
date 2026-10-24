@@ -44,7 +44,7 @@ class TTSSettings {
     this.repetitionPenalty = 1.2,
     this.maxChars = 512,
     this.threads = 4,
-    this.useCorsProxy = true,
+    this.useCorsProxy = false,
     this.corsProxyUrl = 'https://proxy.corsfix.com/?',
   });
 
@@ -132,7 +132,7 @@ class TTSSettings {
         repetitionPenalty: (json['repetitionPenalty'] as num?)?.toDouble() ?? 1.2,
         maxChars: json['maxChars'] as int? ?? 512,
         threads: json['threads'] as int? ?? 4,
-        useCorsProxy: json['useCorsProxy'] as bool? ?? true,
+        useCorsProxy: json['useCorsProxy'] as bool? ?? false,
         corsProxyUrl: json['corsProxyUrl'] as String? ?? 'https://proxy.corsfix.com/?',
       );
 }

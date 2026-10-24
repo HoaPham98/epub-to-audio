@@ -93,13 +93,18 @@ class BookRepository implements IBookRepository {
   Future<TTSSettings> getSettings() async {
     await _ensureInitialized();
     final raw = _prefs?.getString('tts_settings');
-    if (raw == null) return const TTSSettings();
+    if (raw == null) return const TTSSettings(ttsMode: TtsMode.remote);
 
     try {
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      return TTSSettings.fromJson(json);
+      dynamic decoded = jsonDecode(raw);
+      while (decoded is String) {
+        decoded = jsonDecode(decoded);
+      }
+      final json = decoded as Map<String, dynamic>;
+      final s = TTSSettings.fromJson(json);
+      return s.copyWith(ttsMode: TtsMode.remote);
     } catch (_) {
-      return const TTSSettings();
+      return const TTSSettings(ttsMode: TtsMode.remote);
     }
   }
 

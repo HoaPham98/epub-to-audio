@@ -152,19 +152,19 @@ data: [DONE]
 
     test('TTSSettings serializes and deserializes CORS proxy properties', () {
       const defaultSettings = TTSSettings();
-      expect(defaultSettings.useCorsProxy, isTrue);
+      expect(defaultSettings.useCorsProxy, isFalse);
       expect(defaultSettings.corsProxyUrl, equals('https://proxy.corsfix.com/?'));
 
       final custom = defaultSettings.copyWith(
-        useCorsProxy: false,
+        useCorsProxy: true,
         corsProxyUrl: 'https://custom-proxy.internal/?',
       );
-      expect(custom.useCorsProxy, isFalse);
+      expect(custom.useCorsProxy, isTrue);
       expect(custom.corsProxyUrl, equals('https://custom-proxy.internal/?'));
 
       final json = custom.toJson();
       final roundtrip = TTSSettings.fromJson(json);
-      expect(roundtrip.useCorsProxy, isFalse);
+      expect(roundtrip.useCorsProxy, isTrue);
       expect(roundtrip.corsProxyUrl, equals('https://custom-proxy.internal/?'));
     });
   });

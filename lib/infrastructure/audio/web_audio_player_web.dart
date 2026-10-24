@@ -1,7 +1,20 @@
 import 'dart:async';
+import 'dart:js_interop';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import '../../domain/domain.dart';
 import 'audio_timeline_tracker.dart';
+
+@JS('_webAudioEngine')
+external JSObject? get _webAudioEngine;
+
+extension WebAudioEngineMethods on JSObject {
+  external void queuePCMChunk(JSUint8Array pcmBytes, int sampleRate);
+  external void play();
+  external void pause();
+  external void stop();
+  external void setVolume(double volume);
+}
 
 class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
   final AudioTimelineTracker _timeline = AudioTimelineTracker();
@@ -53,9 +66,56 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
     }
   }
 
+  void _callEngineQueue(Uint8List pcm, int sampleRate) {
+    try {
+      final engine = _webAudioEngine;
+      if (engine != null) {
+        debugPrint('[WebAudioStreamPlayer] calling queuePCMChunk ${pcm.length} bytes @ $sampleRate Hz');
+        engine.queuePCMChunk(pcm.toJS, sampleRate);
+      } else {
+        debugPrint('[WebAudioStreamPlayer] _webAudioEngine is NULL!');
+      }
+    } catch (e) {
+      debugPrint('[WebAudioStreamPlayer] error in queuePCMChunk: $e');
+    }
+  }
+
+  void _callEnginePlay() {
+    try {
+      _webAudioEngine?.play();
+      debugPrint('[WebAudioStreamPlayer] calling play()');
+    } catch (e) {
+      debugPrint('[WebAudioStreamPlayer] error in play(): $e');
+    }
+  }
+
+  void _callEnginePause() {
+    try {
+      _webAudioEngine?.pause();
+      debugPrint('[WebAudioStreamPlayer] calling pause()');
+    } catch (e) {
+      debugPrint('[WebAudioStreamPlayer] error in pause(): $e');
+    }
+  }
+
+  void _callEngineStop() {
+    try {
+      _webAudioEngine?.stop();
+      debugPrint('[WebAudioStreamPlayer] calling stop()');
+    } catch (e) {
+      debugPrint('[WebAudioStreamPlayer] error in stop(): $e');
+    }
+  }
+
+  void _callEngineVolume(double vol) {
+    try {
+      _webAudioEngine?.setVolume(vol);
+    } catch (_) {}
+  }
+
   void _startTicker() {
     _ticker?.cancel();
-    const intervalMs = 50;
+    const intervalMs = 100;
     _ticker = Timer.periodic(const Duration(milliseconds: intervalMs), (timer) {
       if (!_isPlaying) return;
 
@@ -87,6 +147,7 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
   @override
   Future<void> play() async {
     _isPlaying = true;
+    _callEnginePlay();
     _startTicker();
     _emitProgress();
   }
@@ -94,6 +155,7 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
   @override
   Future<void> pause() async {
     _isPlaying = false;
+    _callEnginePause();
     _ticker?.cancel();
     _emitProgress();
   }
@@ -102,6 +164,7 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
   Future<void> stop() async {
     _isPlaying = false;
     _currentTime = 0.0;
+    _callEngineStop();
     _ticker?.cancel();
     _emitProgress();
   }
@@ -133,6 +196,7 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
   @override
   Future<void> setVolume(double volume) async {
     _volume = volume.clamp(0.0, 1.0);
+    _callEngineVolume(_volume);
   }
 
   @override
@@ -142,12 +206,18 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
     Uint8List audioBytes, {
     bool isLastChunk = false,
     ChunkMeta? meta,
+    int? sampleRate,
   }) async {
     final isParagraph = meta?.isParagraphEnd ?? false;
     final rawPcm = isWavBytes(audioBytes) ? wavToPcm(audioBytes) : audioBytes;
 
-    // At 24kHz Mono 16-bit -> 48,000 bytes/sec
-    final audioSeconds = rawPcm.length / 48000.0;
+    int rate = sampleRate ?? 24000;
+    if (isWavBytes(audioBytes) && audioBytes.length >= 28) {
+      rate = ByteData.sublistView(audioBytes, 24, 28).getUint32(0, Endian.little);
+    }
+
+    // 16-bit Mono (2 bytes per sample) -> rate * 2 bytes/sec
+    final audioSeconds = rawPcm.length / (rate * 2.0);
 
     _timeline.enqueueChunk(
       chapterIndex: chapterIndex,
@@ -155,6 +225,8 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
       chunkAudioDuration: audioSeconds,
       isParagraphEnd: isParagraph,
     );
+
+    _callEngineQueue(rawPcm, rate);
 
     _chunkStatuses[chunkIndex] = ChunkStatus.ready;
     _emitProgress();
@@ -165,6 +237,7 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
     _timeline.reset();
     _chunkStatuses.clear();
     _currentTime = 0.0;
+    _callEngineStop();
     _emitProgress();
   }
 
@@ -199,9 +272,9 @@ class WebAudioStreamPlayerAdapter implements IAudioStreamPlayer {
   @override
   Future<void> dispose() async {
     _ticker?.cancel();
+    _callEngineStop();
     await _progressController.close();
   }
 }
 
 IAudioStreamPlayer createPlatformAudioPlayer() => WebAudioStreamPlayerAdapter();
-

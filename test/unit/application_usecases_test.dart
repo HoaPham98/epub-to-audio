@@ -181,6 +181,7 @@ class FakeAudioStreamPlayer implements IAudioStreamPlayer {
     Uint8List audioBytes, {
     bool isLastChunk = false,
     ChunkMeta? meta,
+    int? sampleRate,
   }) async {
     queuedChunks.add(audioBytes);
   }

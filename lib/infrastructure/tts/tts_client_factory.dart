@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../../domain/domain.dart';
 import 'on_device_tts.dart';
 import 'standard_openai_tts_client.dart';
@@ -15,6 +16,7 @@ class TTSClientFactory {
     if (customClient != null) return customClient;
 
     if (settings.ttsMode == TtsMode.offline) {
+      if (kIsWeb) return _vieneuStreamClient;
       return _onDeviceClient;
     }
 

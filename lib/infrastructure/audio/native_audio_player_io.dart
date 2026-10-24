@@ -143,12 +143,14 @@ class NativeAudioStreamPlayerAdapter implements IAudioStreamPlayer {
     Uint8List audioBytes, {
     bool isLastChunk = false,
     ChunkMeta? meta,
+    int? sampleRate,
   }) async {
     final isParagraph = meta?.isParagraphEnd ?? false;
     final rawPcm = isWavBytes(audioBytes) ? wavToPcm(audioBytes) : audioBytes;
 
-    // At 24kHz Mono 16-bit (2 bytes per sample) -> 48,000 bytes/sec
-    final audioSeconds = rawPcm.length / 48000.0;
+    final rate = sampleRate ?? 24000;
+    // 16-bit Mono (2 bytes per sample) -> rate * 2 bytes/sec
+    final audioSeconds = rawPcm.length / (rate * 2.0);
 
     _timeline.enqueueChunk(
       chapterIndex: chapterIndex,

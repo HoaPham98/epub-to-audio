@@ -218,6 +218,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final chunk = chapter.chunks[chunkIndex];
     final ttsService = widget.ttsService ?? TTSClientFactory.create(_settings);
 
+    debugPrint('[HomeScreen] _playChunk chapter: $chapterIndex, chunk: $chunkIndex, mode: ${_settings.ttsMode}, endpoint: ${_settings.endpoint}');
+
     setState(() {
       _currentChapterIndex = chapterIndex;
       _currentChunkIndex = chunkIndex;
@@ -247,7 +249,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Trigger prefetch in the background
       _triggerPrefetch(chapterIndex, chunkIndex);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[HomeScreen] _playChunk ERROR: $e\n$st');
       if (mounted) {
         setState(() {
           _chunkStatuses[chunkIndex] = ChunkStatus.error;
@@ -277,7 +280,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isPlaying) {
       _audioPlayer.pause();
     } else {
-      if (_currentBook != null && _currentBook!.chapters.isNotEmpty) {
+      if (_duration > 0 && _currentTime < _duration) {
+        _audioPlayer.play();
+      } else if (_currentBook != null && _currentBook!.chapters.isNotEmpty) {
         _playChunk(_currentChapterIndex, _currentChunkIndex);
       }
     }

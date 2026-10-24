@@ -52,6 +52,7 @@ abstract interface class IAudioStreamPlayer {
     Uint8List audioBytes, {
     bool isLastChunk = false,
     ChunkMeta? meta,
+    int? sampleRate,
   });
 
   Future<void> clearQueue();

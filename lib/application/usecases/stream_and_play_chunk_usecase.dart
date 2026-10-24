@@ -86,12 +86,14 @@ class StreamAndPlayChunkUseCase {
           cached.bytes,
           isLastChunk: params.isLastChunk,
           meta: meta,
+          sampleRate: params.settings.sampleRate,
         );
         await audioPlayer.setChunkStatus(
           params.chapterIndex,
           params.chunkIndex,
           ChunkStatus.ready,
         );
+        await audioPlayer.play();
         params.onNetworkDone?.call();
         return StreamAndPlayResult(fromCache: true, audioBytes: cached.bytes);
       }
@@ -139,6 +141,7 @@ class StreamAndPlayChunkUseCase {
             params.chunkIndex,
             ChunkStatus.playing,
           );
+          await audioPlayer.play();
         }
 
         await audioPlayer.queueAudioChunk(
@@ -147,6 +150,7 @@ class StreamAndPlayChunkUseCase {
           chunk.pcmBuffer,
           isLastChunk: chunk.isLast,
           meta: meta,
+          sampleRate: chunk.sampleRate,
         );
       }
 

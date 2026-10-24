@@ -98,6 +98,8 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
       throw http.ClientException('Lỗi $status từ máy chủ TTS', url);
     }
 
+    final respSampleRate = int.tryParse(response.headers['x-sample-rate'] ?? '') ?? settings.sampleRate;
+
     final linesStream = response.stream
         .transform(utf8.decoder)
         .transform(const LineSplitter());
@@ -116,7 +118,7 @@ class VieNeuStreamTTSClient implements ITTSStreamingService {
           final pcmBytes = base64Decode(event['audio'] as String);
           yield AudioChunk(
             pcmBuffer: pcmBytes,
-            sampleRate: settings.sampleRate,
+            sampleRate: respSampleRate,
             channels: 1,
           );
         } else if (type == 'speech.audio.done') {

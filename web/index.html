@@ -31,16 +31,132 @@
 
   <title>EPUB to Audio - VieNeu-TTS</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- WebAudioEngine must be defined before Flutter scripts execute -->
+  <script>
+    class WebAudioEngine {
+      constructor() {
+        this.ctx = null;
+        this.gainNode = null;
+        this.nextStartTime = 0;
+        this.sources = [];
+        this.isPlaying = false;
+        this.sampleRate = 48000;
+      }
+
+      ensureContext() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioCtx();
+          this.gainNode = this.ctx.createGain();
+          this.gainNode.connect(this.ctx.destination);
+          console.log('[WebAudioEngine] AudioContext created at rate:', this.ctx.sampleRate, 'state:', this.ctx.state);
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume().then(() => {
+            console.log('[WebAudioEngine] AudioContext resumed, state:', this.ctx.state);
+          });
+        }
+      }
+
+      queuePCMChunk(pcmBytes, sampleRate) {
+        if (!pcmBytes || pcmBytes.length < 2) return;
+        this.ensureContext();
+        const rate = sampleRate || this.sampleRate || 48000;
+        this.sampleRate = rate;
+
+        const byteLen = pcmBytes.length - (pcmBytes.length % 2);
+        let int16;
+        try {
+          if (pcmBytes.byteOffset % 2 === 0) {
+            int16 = new Int16Array(pcmBytes.buffer, pcmBytes.byteOffset, byteLen / 2);
+          } else {
+            const copy = new Uint8Array(byteLen);
+            copy.set(pcmBytes.subarray(0, byteLen));
+            int16 = new Int16Array(copy.buffer, 0, byteLen / 2);
+          }
+        } catch (e) {
+          const copy = new Uint8Array(byteLen);
+          copy.set(pcmBytes.subarray(0, byteLen));
+          int16 = new Int16Array(copy.buffer, 0, byteLen / 2);
+        }
+
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) {
+          float32[i] = int16[i] / 32768.0;
+        }
+
+        const buffer = this.ctx.createBuffer(1, float32.length, rate);
+        buffer.getChannelData(0).set(float32);
+
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.gainNode);
+
+        const now = this.ctx.currentTime;
+        if (this.nextStartTime < now) {
+          this.nextStartTime = now + 0.03;
+        }
+
+        source.start(this.nextStartTime);
+        this.nextStartTime += buffer.duration;
+        this.sources.push(source);
+        this.isPlaying = true;
+        console.log('[WebAudioEngine] Queued chunk: duration=' + buffer.duration.toFixed(2) + 's, nextStart=' + this.nextStartTime.toFixed(2) + 's, activeSources=' + this.sources.length);
+
+        source.onended = () => {
+          const idx = this.sources.indexOf(source);
+          if (idx !== -1) this.sources.splice(idx, 1);
+          if (this.sources.length === 0 && this.ctx.currentTime >= this.nextStartTime) {
+            this.isPlaying = false;
+          }
+        };
+      }
+
+      play() {
+        this.ensureContext();
+        this.isPlaying = true;
+        console.log('[WebAudioEngine] Play called, ctxState:', this.ctx?.state);
+      }
+
+      pause() {
+        if (this.ctx) {
+          this.ctx.suspend();
+        }
+        this.isPlaying = false;
+        console.log('[WebAudioEngine] Pause called');
+      }
+
+      stop() {
+        for (const src of this.sources) {
+          try { src.stop(); } catch (e) {}
+        }
+        this.sources = [];
+        this.nextStartTime = 0;
+        this.isPlaying = false;
+        console.log('[WebAudioEngine] Stop called');
+      }
+
+      setVolume(val) {
+        if (this.gainNode && this.ctx) {
+          this.gainNode.gain.setValueAtTime(val, this.ctx.currentTime);
+        }
+      }
+    }
+
+    window._webAudioEngine = new WebAudioEngine();
+
+    // Auto-resume AudioContext on first user interaction anywhere
+    const unlockAudio = () => {
+      if (window._webAudioEngine) {
+        window._webAudioEngine.ensureContext();
+      }
+    };
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('click', unlockAudio, { passive: true });
+  </script>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
