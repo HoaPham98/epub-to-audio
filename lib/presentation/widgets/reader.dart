@@ -304,24 +304,26 @@ class _ReaderState extends State<Reader> {
         ),
       );
     } else if (isCurrent && widget.isLoading) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.amber.withValues(alpha: 0.2),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 6),
-            Text('Đang kết nối...',
-                style: TextStyle(fontSize: 11, color: Colors.amber)),
-          ],
+      return ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.amber.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 6),
+              Text('Đang kết nối...',
+                  style: TextStyle(fontSize: 11, color: Colors.amber)),
+            ],
+          ),
         ),
       );
     } else if (isCurrent && !widget.isPlaying) {

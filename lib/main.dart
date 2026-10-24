@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'presentation/screens/home_screen.dart';
 
@@ -15,6 +16,14 @@ class EpubToAudioApp extends StatelessWidget {
       title: 'EPUB to Audio - VieNeu-TTS',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
+      builder: (context, child) {
+        // Exclude semantics on Windows desktop to avoid Chromium AXTree corruption
+        // and access violation crashes in flutter_windows.dll during modal/dropdown transitions.
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+          return ExcludeSemantics(child: child ?? const SizedBox.shrink());
+        }
+        return child ?? const SizedBox.shrink();
+      },
       theme: ThemeData(
         brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(

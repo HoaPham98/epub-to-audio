@@ -199,7 +199,6 @@ void main() {
       addTearDown(() => tester.view.resetPhysicalSize());
 
       bool playToggled = false;
-      bool seekCalled = false;
 
       await tester.pumpWidget(
         MaterialApp(
@@ -220,7 +219,7 @@ void main() {
               onPrevChapter: () {},
               onNextChapter: () {},
               onSkipRelative: (_) {},
-              onSeek: (_) => seekCalled = true,
+              onSeek: (_) {},
               onToggleAutoNext: () {},
               onChangeSpeed: (_) {},
               onChangeVolume: (_) {},

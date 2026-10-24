@@ -88,15 +88,16 @@ class _SettingsModalState extends State<SettingsModal> {
   bool _showAdvanced = false;
 
   static const List<String> _suggestedVoices = [
-    'Mai Anh',
-    'Hải Đăng',
-    'Trúc Ly',
-    'Thiện Minh',
-    'Thùy Dung',
-    'Thiền Tâm Đức',
+    'Minh Quân Pro',
     'Ngọc Huyền',
+    'Mai Anh',
+    'Thùy Dung',
     'Quang Sơn',
     'Ngọc Trân',
+    'Anh Khôi',
+    'Trúc Ly',
+    'Adam bựa',
+    'Thiền Tâm Đức',
     'Minh Đức',
     'Phạm Tuyên',
     'Thái Sơn',
@@ -111,8 +112,7 @@ class _SettingsModalState extends State<SettingsModal> {
     'Đức Trí',
     'Kim Thanh',
     'Adam',
-    'Adam bựa',
-    'Quốc Tuấn',
+    'Mạnh Dũng',
   ];
 
   @override
@@ -212,11 +212,10 @@ class _SettingsModalState extends State<SettingsModal> {
           _voicesFeedbackSuccess = true;
           final exists = voices.any((v) =>
               v.id.toLowerCase() == _selectedVoice.toLowerCase() ||
-              (v.name != null && v.name!.toLowerCase() == _selectedVoice.toLowerCase()));
+              v.name.toLowerCase() == _selectedVoice.toLowerCase());
           if (!exists && voices.isNotEmpty) {
-            final firstVoice = (voices.first.name != null &&
-                    voices.first.name!.isNotEmpty)
-                ? voices.first.name!
+            final firstVoice = voices.first.name.isNotEmpty
+                ? voices.first.name
                 : voices.first.id;
             _selectedVoice = firstVoice;
             _voiceCtrl.text = firstVoice;
@@ -420,8 +419,9 @@ class _SettingsModalState extends State<SettingsModal> {
                 foregroundColor: Colors.white,
               ),
               onPressed: () {
-                widget.onSave(_buildSettings());
+                final updated = _buildSettings();
                 Navigator.of(context).pop();
+                widget.onSave(updated);
               },
               child: const Text('Lưu cài đặt'),
             ),
@@ -507,7 +507,8 @@ class _SettingsModalState extends State<SettingsModal> {
         ),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
-          value: _suggestedVoices.contains(_selectedVoice)
+          key: ValueKey(_selectedVoice),
+          initialValue: _suggestedVoices.contains(_selectedVoice)
               ? _selectedVoice
               : _suggestedVoices.first,
           decoration: InputDecoration(
@@ -605,7 +606,7 @@ class _SettingsModalState extends State<SettingsModal> {
   Widget _buildRemoteSettings(bool isDark) {
     final activeVoices = _fetchedVoices.isNotEmpty
         ? _fetchedVoices
-            .map((v) => (v.name != null && v.name!.isNotEmpty) ? v.name! : v.id)
+            .map((v) => v.name.isNotEmpty ? v.name : v.id)
             .toList()
         : _suggestedVoices;
 
@@ -1007,7 +1008,7 @@ class _SettingsModalState extends State<SettingsModal> {
                     style: TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                   value: _useCorsProxy,
-                  activeColor: Colors.amber,
+                  activeThumbColor: Colors.amber,
                   onChanged: (val) => setState(() => _useCorsProxy = val),
                 ),
                 if (_useCorsProxy) ...[

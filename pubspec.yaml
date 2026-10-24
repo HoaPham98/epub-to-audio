@@ -42,7 +42,7 @@ dependencies:
   just_audio: ^0.9.43
   audio_service: ^0.18.18
   audio_session: ^0.1.21
-
+  just_audio_windows_plus: ^0.5.5
 dev_dependencies:
   flutter_test:
     sdk: flutter

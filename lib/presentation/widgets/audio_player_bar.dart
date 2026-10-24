@@ -214,12 +214,14 @@ class AudioPlayerBar extends StatelessWidget {
                     ),
                     child: IconButton(
                       icon: isLoading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                          ? const ExcludeSemantics(
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               ),
                             )
                           : Icon(
@@ -405,24 +407,26 @@ class AudioPlayerBar extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 3.0,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                    overlayShape:
-                        const RoundSliderOverlayShape(overlayRadius: 12.0),
-                    activeTrackColor: Colors.indigo,
-                    inactiveTrackColor: isDark
-                        ? const Color(0xFF27272A)
-                        : const Color(0xFFE4E4E7),
-                    thumbColor: Colors.indigo,
-                  ),
-                  child: Slider(
-                    min: 0.0,
-                    max: maxDuration,
-                    value: clampedCurrent,
-                    onChanged: (val) => onSeek(val),
+                child: ExcludeSemantics(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 3.0,
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 12.0),
+                      activeTrackColor: Colors.indigo,
+                      inactiveTrackColor: isDark
+                          ? const Color(0xFF27272A)
+                          : const Color(0xFFE4E4E7),
+                      thumbColor: Colors.indigo,
+                    ),
+                    child: Slider(
+                      min: 0.0,
+                      max: maxDuration,
+                      value: clampedCurrent,
+                      onChanged: (val) => onSeek(val),
+                    ),
                   ),
                 ),
               ),
@@ -466,12 +470,14 @@ class AudioPlayerBar extends StatelessWidget {
           ),
           child: IconButton(
             icon: isLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
+                ? const ExcludeSemantics(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     ),
                   )
                 : Icon(

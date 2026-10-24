@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -125,10 +126,30 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       await _refreshCacheCount();
+
+      // Auto-initialize offline TTS model if downloaded
+      if (!kIsWeb && _settings.ttsMode == TtsMode.offline) {
+        _autoInitOfflineModel();
+      }
     } catch (e) {
       debugPrint('HomeScreen init error: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _autoInitOfflineModel() async {
+    if (kIsWeb || widget.ttsService != null) return;
+    try {
+      final isDownloaded = await _modelManager.isModelDownloaded();
+      final isInit = await _modelManager.isEngineInitialized();
+      if (isDownloaded && !isInit) {
+        debugPrint('[HomeScreen] Auto-initializing on-device VieNeu-TTS engine...');
+        await _modelUseCase.initializeEngine(threads: _settings.threads);
+        debugPrint('[HomeScreen] On-device VieNeu-TTS engine initialized successfully.');
+      }
+    } catch (e) {
+      debugPrint('[HomeScreen] Auto-init offline engine error: $e');
     }
   }
 
@@ -255,6 +276,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_currentBook == null) return;
     final chapter = _currentBook!.chapters[chapterIndex];
     if (chunkIndex < 0 || chunkIndex >= chapter.chunks.length) return;
+
+    // Ensure on-device TTS engine is initialized if in offline mode
+    if (!kIsWeb && widget.ttsService == null && _settings.ttsMode == TtsMode.offline) {
+      final isInit = await _modelManager.isEngineInitialized();
+      if (!isInit) {
+        final isDownloaded = await _modelManager.isModelDownloaded();
+        if (isDownloaded) {
+          debugPrint('[HomeScreen] Initializing offline engine before playback...');
+          await _modelUseCase.initializeEngine(threads: _settings.threads);
+        } else {
+          if (mounted) {
+            _openModelDownload();
+          }
+          return;
+        }
+      }
+    }
 
     _isUserPaused = false;
     final chunk = chapter.chunks[chunkIndex];
@@ -416,9 +454,15 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       settings: _settings,
       onSave: (updated) {
-        setState(() => _settings = updated);
+        setState(() {
+          _settings = updated;
+          _speed = updated.speed;
+        });
         _bookRepo.saveSettings(updated);
-        _handleChangeSpeed(updated.speed);
+        _audioPlayer.setSpeed(updated.speed);
+        if (!kIsWeb && updated.ttsMode == TtsMode.offline) {
+          _autoInitOfflineModel();
+        }
       },
       onOpenModelDownload: _openModelDownload,
     );

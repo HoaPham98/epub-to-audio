@@ -15,10 +15,12 @@ class OnDeviceVieNeuTTSClient implements ITTSStreamingService {
     void Function()? onCancel,
   }) async* {
     final resolvedVoice = VieneuTts.resolveVoiceId(settings.voice);
+    final effectiveSampleRate =
+        settings.sampleRate > 0 ? settings.sampleRate : 24000;
     final options = TtsSynthesisOptions(
       voice: resolvedVoice,
-      speed: settings.speed,
-      sampleRate: 24000,
+      speed: 1.0,
+      sampleRate: effectiveSampleRate,
       channels: 1,
       responseFormat: AudioFormat.pcm,
       temperature: settings.temperature,
@@ -29,12 +31,13 @@ class OnDeviceVieNeuTTSClient implements ITTSStreamingService {
     );
 
     final stream = VieneuTts.stream(text: text, options: options);
-
-    await for (final chunk in stream) {
+    final chunks = await stream.toList();
+    for (int i = 0; i < chunks.length; i++) {
       yield AudioChunk(
-        pcmBuffer: chunk,
-        sampleRate: 24000,
+        pcmBuffer: chunks[i],
+        sampleRate: effectiveSampleRate,
         channels: 1,
+        isLast: i == chunks.length - 1,
       );
     }
   }
@@ -45,10 +48,12 @@ class OnDeviceVieNeuTTSClient implements ITTSStreamingService {
     TTSSettings settings,
   ) async {
     final resolvedVoice = VieneuTts.resolveVoiceId(settings.voice);
+    final effectiveSampleRate =
+        settings.sampleRate > 0 ? settings.sampleRate : 24000;
     final options = TtsSynthesisOptions(
       voice: resolvedVoice,
-      speed: settings.speed,
-      sampleRate: 24000,
+      speed: 1.0,
+      sampleRate: effectiveSampleRate,
       channels: 1,
       responseFormat: AudioFormat.wav,
       temperature: settings.temperature,

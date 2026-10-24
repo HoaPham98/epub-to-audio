@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:js_interop';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../../domain/domain.dart';
 import 'audio_timeline_tracker.dart';
